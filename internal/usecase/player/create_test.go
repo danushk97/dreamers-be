@@ -1,0 +1,93 @@
+package player
+
+import (
+	"context"
+	"testing"
+	"time"
+
+	"github.com/dreamers-be/internal/domain/player"
+	"github.com/dreamers-be/internal/domain/storage"
+)
+
+type mockRepo struct {
+	createErr error
+	created   *player.Entity
+}
+
+func (m *mockRepo) Create(ctx context.Context, p *player.Entity) error {
+	m.created = p
+	return m.createErr
+}
+
+func (m *mockRepo) List(ctx context.Context, f *player.ListFilter) (*player.ListResult, error) {
+	return nil, nil
+}
+
+type mockUploader struct {
+	url string
+}
+
+func (m *mockUploader) Upload(ctx context.Context, filename string, data []byte, contentType string) (string, error) {
+	return m.url, nil
+}
+
+var _ storage.FileUploader = (*mockUploader)(nil)
+
+func TestCreateUseCase_Create(t *testing.T) {
+	ctx := context.Background()
+	repo := &mockRepo{}
+	uploader := &mockUploader{url: "https://drive.google.com/photo"}
+	uc := NewCreateUseCase(repo, uploader)
+
+	dob := time.Date(1990, 5, 15, 0, 0, 0, 0, time.UTC)
+	in := &CreateInput{
+		Name:               "Test Player",
+		ImageURL:           "https://drive.google.com/photo",
+		AadharCardImageURL: "https://drive.google.com/aadhar",
+		Gender:             "MALE",
+		DateOfBirth:        dob,
+		TNBAID:             "TNBA123",
+		District:           "Chennai",
+		Phone:              "9876543210",
+		TshirtSize:         "M",
+	}
+
+	p, err := uc.Create(ctx, in)
+	if err != nil {
+		t.Fatalf("Create() err = %v", err)
+	}
+	if p.ID == "" {
+		t.Error("ID should be set")
+	}
+	if p.Name != "Test Player" {
+		t.Errorf("Name = %q", p.Name)
+	}
+	if repo.created == nil {
+		t.Fatal("repo.Create was not called")
+	}
+}
+
+func TestCreateUseCase_Validation(t *testing.T) {
+	ctx := context.Background()
+	repo := &mockRepo{}
+	uploader := &mockUploader{}
+	uc := NewCreateUseCase(repo, uploader)
+
+	tests := []struct {
+		name string
+		in   *CreateInput
+	}{
+		{"missing name", &CreateInput{ImageURL: "https://x.com", AadharCardImageURL: "https://x.com", Gender: "MALE", DateOfBirth: time.Now(), TNBAID: "X", District: "Chennai", Phone: "9876543210", TshirtSize: "M"}},
+		{"invalid phone", &CreateInput{Name: "X", ImageURL: "https://x.com", AadharCardImageURL: "https://x.com", Gender: "MALE", DateOfBirth: time.Now(), TNBAID: "X", District: "Chennai", Phone: "123", TshirtSize: "M"}},
+		{"invalid district", &CreateInput{Name: "X", ImageURL: "https://x.com", AadharCardImageURL: "https://x.com", Gender: "MALE", DateOfBirth: time.Now(), TNBAID: "X", District: "InvalidDistrict", Phone: "9876543210", TshirtSize: "M"}},
+		{"invalid gender", &CreateInput{Name: "X", ImageURL: "https://x.com", AadharCardImageURL: "https://x.com", Gender: "X", DateOfBirth: time.Now(), TNBAID: "X", District: "Chennai", Phone: "9876543210", TshirtSize: "M"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := uc.Create(ctx, tt.in)
+			if err == nil {
+				t.Error("expected validation error")
+			}
+		})
+	}
+}

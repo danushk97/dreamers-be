@@ -1,0 +1,16 @@
+# Dreamers Backend Configuration
+
+[server]
+port = "8080"
+
+[database]
+url = "postgres://dbaskarr:rOOt@localhost:5432/dreamers?sslmode=disable"
+migration_path = "./migrations"
+
+[gdrive]
+# Path to service account JSON file, or leave empty
+credentials_path = ""
+# Optional: parent folder ID for uploads
+folder_id = ""
+# Max file size in MB
+max_size_mb = 2
