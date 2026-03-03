@@ -67,7 +67,7 @@ func main() {
 	{
 		api.POST("/upload", uh.Upload)
 		api.POST("/players", ph.Create)
-		api.GET("/players", ph.List)
+		api.GET("/players", ginhandler.BasicAuth(ginhandler.BasicAuthCredentials), ph.List)
 	}
 
 	addr := ":" + cfg.Server.Port
