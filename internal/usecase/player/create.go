@@ -2,6 +2,7 @@ package player
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -11,6 +12,18 @@ import (
 	"github.com/dreamers-be/internal/domain/storage"
 	"github.com/dreamers-be/internal/pkg/sanitize"
 )
+
+// ValidationError indicates a validation failure (client fault, 400).
+type ValidationError struct{ Err error }
+
+func (e *ValidationError) Error() string { return e.Err.Error() }
+func (e *ValidationError) Unwrap() error { return e.Err }
+
+// IsValidationError returns true if err is a ValidationError.
+func IsValidationError(err error) bool {
+	var ve *ValidationError
+	return errors.As(err, &ve)
+}
 
 // CreateInput holds validated input for creating a player.
 type CreateInput struct {
@@ -40,7 +53,7 @@ func NewCreateUseCase(repo player.Repository, upload storage.FileUploader) *Crea
 // Create registers a new player. Image URLs must be provided (from upload step).
 func (uc *CreateUseCase) Create(ctx context.Context, in *CreateInput) (*player.Entity, error) {
 	if err := uc.validate(in); err != nil {
-		return nil, err
+		return nil, &ValidationError{Err: err}
 	}
 
 	p := &player.Entity{

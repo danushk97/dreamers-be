@@ -23,8 +23,8 @@ func (m *mockRepo) List(ctx context.Context, f *player.ListFilter) (*player.List
 
 type mockUploader struct{}
 
-func (m *mockUploader) Upload(ctx context.Context, filename string, data []byte, contentType string) (string, error) {
-	return "https://example.com/" + filename, nil
+func (m *mockUploader) Upload(ctx context.Context, filename string, data []byte, contentType string, folder string) (string, error) {
+	return "profile_photo/placeholder/" + filename, nil
 }
 
 func TestPlayerHandler_Create_BadRequest(t *testing.T) {
@@ -32,7 +32,7 @@ func TestPlayerHandler_Create_BadRequest(t *testing.T) {
 
 	createUC := playeruc.NewCreateUseCase(&mockRepo{}, &mockUploader{})
 	listUC := playeruc.NewListUseCase(&mockRepo{})
-	ph := NewPlayerHandler(createUC, listUC)
+	ph := NewPlayerHandler(createUC, listUC, nil)
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
@@ -51,7 +51,7 @@ func TestPlayerHandler_List(t *testing.T) {
 
 	createUC := playeruc.NewCreateUseCase(&mockRepo{}, &mockUploader{})
 	listUC := playeruc.NewListUseCase(&mockRepo{})
-	ph := NewPlayerHandler(createUC, listUC)
+	ph := NewPlayerHandler(createUC, listUC, nil)
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)

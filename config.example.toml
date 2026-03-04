@@ -8,10 +8,13 @@ port = "8080"
 url = "postgres://postgres:postgres@localhost:5432/dreamers?sslmode=disable"
 migration_path = "./migrations"
 
-[gdrive]
-# Path to service account JSON file (e.g. /path/to/service-account.json)
-credentials_path = ""
-# Optional: parent folder ID for uploads
-folder_id = ""
-# Max file size in MB
+[s3]
+# S3 bucket for profile photos and Aadhar uploads (required for uploads)
+bucket = ""
+region = "us-east-1"
+# Optional: CDN or custom domain base URL
+base_url = ""
 max_size_mb = 2
+# Optional: use AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY env if not set
+access_key = ""
+secret_key = ""

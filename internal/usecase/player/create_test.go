@@ -27,7 +27,7 @@ type mockUploader struct {
 	url string
 }
 
-func (m *mockUploader) Upload(ctx context.Context, filename string, data []byte, contentType string) (string, error) {
+func (m *mockUploader) Upload(ctx context.Context, filename string, data []byte, contentType string, folder string) (string, error) {
 	return m.url, nil
 }
 
@@ -36,14 +36,14 @@ var _ storage.FileUploader = (*mockUploader)(nil)
 func TestCreateUseCase_Create(t *testing.T) {
 	ctx := context.Background()
 	repo := &mockRepo{}
-	uploader := &mockUploader{url: "https://drive.google.com/photo"}
+	uploader := &mockUploader{url: "profile_photo/2024/01/02/photo-abc123.jpg"}
 	uc := NewCreateUseCase(repo, uploader)
 
 	dob := time.Date(1990, 5, 15, 0, 0, 0, 0, time.UTC)
 	in := &CreateInput{
 		Name:               "Test Player",
-		ImageURL:           "https://drive.google.com/photo",
-		AadharCardImageURL: "https://drive.google.com/aadhar",
+		ImageURL:           "profile_photo/2024/01/02/photo-abc123.jpg",
+		AadharCardImageURL: "aadhar/2024/01/02/aadhar-xyz456.jpg",
 		Gender:             "MALE",
 		DateOfBirth:        dob,
 		TNBAID:             "TNBA123",
@@ -77,10 +77,10 @@ func TestCreateUseCase_Validation(t *testing.T) {
 		name string
 		in   *CreateInput
 	}{
-		{"missing name", &CreateInput{ImageURL: "https://x.com", AadharCardImageURL: "https://x.com", Gender: "MALE", DateOfBirth: time.Now(), TNBAID: "X", District: "Chennai", Phone: "9876543210", TshirtSize: "M"}},
-		{"invalid phone", &CreateInput{Name: "X", ImageURL: "https://x.com", AadharCardImageURL: "https://x.com", Gender: "MALE", DateOfBirth: time.Now(), TNBAID: "X", District: "Chennai", Phone: "123", TshirtSize: "M"}},
-		{"invalid district", &CreateInput{Name: "X", ImageURL: "https://x.com", AadharCardImageURL: "https://x.com", Gender: "MALE", DateOfBirth: time.Now(), TNBAID: "X", District: "InvalidDistrict", Phone: "9876543210", TshirtSize: "M"}},
-		{"invalid gender", &CreateInput{Name: "X", ImageURL: "https://x.com", AadharCardImageURL: "https://x.com", Gender: "X", DateOfBirth: time.Now(), TNBAID: "X", District: "Chennai", Phone: "9876543210", TshirtSize: "M"}},
+		{"missing name", &CreateInput{ImageURL: "profile_photo/x.jpg", AadharCardImageURL: "aadhar/x.jpg", Gender: "MALE", DateOfBirth: time.Now(), TNBAID: "X", District: "Chennai", Phone: "9876543210", TshirtSize: "M"}},
+		{"invalid phone", &CreateInput{Name: "X", ImageURL: "profile_photo/x.jpg", AadharCardImageURL: "aadhar/x.jpg", Gender: "MALE", DateOfBirth: time.Now(), TNBAID: "X", District: "Chennai", Phone: "123", TshirtSize: "M"}},
+		{"invalid district", &CreateInput{Name: "X", ImageURL: "profile_photo/x.jpg", AadharCardImageURL: "aadhar/x.jpg", Gender: "MALE", DateOfBirth: time.Now(), TNBAID: "X", District: "InvalidDistrict", Phone: "9876543210", TshirtSize: "M"}},
+		{"invalid gender", &CreateInput{Name: "X", ImageURL: "profile_photo/x.jpg", AadharCardImageURL: "aadhar/x.jpg", Gender: "X", DateOfBirth: time.Now(), TNBAID: "X", District: "Chennai", Phone: "9876543210", TshirtSize: "M"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

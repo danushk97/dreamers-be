@@ -11,7 +11,7 @@ import (
 
 	ginhandler "github.com/dreamers-be/internal/adapter/http/gin"
 	"github.com/dreamers-be/internal/adapter/persistence/postgres"
-	"github.com/dreamers-be/internal/adapter/storage/gdrive"
+	"github.com/dreamers-be/internal/adapter/storage/s3"
 	"github.com/dreamers-be/internal/domain/storage"
 	appconfig "github.com/dreamers-be/internal/config"
 	"github.com/dreamers-be/internal/usecase/player"
@@ -30,24 +30,27 @@ func main() {
 	}
 	defer db.Close()
 
-	maxMB := cfg.GDrive.MaxSizeMB
+	maxMB := cfg.S3.MaxSizeMB
 	if maxMB <= 0 {
 		maxMB = 2
 	}
 
-	// Google Drive uploader (optional - skip if no credentials)
+	// S3 uploader (optional - noop if bucket not configured)
 	var uploader storage.FileUploader
-	if len(cfg.GDriveCredentials) > 0 {
+	if cfg.S3.Bucket != "" {
 		ctx := context.Background()
-		gdu, err := gdrive.NewFileUploader(ctx, gdrive.Config{
-			CredentialsJSON: cfg.GDriveCredentials,
-			FolderID:        cfg.GDrive.FolderID,
-			MaxSizeMB:       maxMB,
+		s3u, err := s3.NewFileUploader(ctx, s3.Config{
+			Bucket:    cfg.S3.Bucket,
+			Region:    cfg.S3.Region,
+			BaseURL:   cfg.S3.BaseURL,
+			MaxSizeMB: maxMB,
+			AccessKey: cfg.S3.AccessKey,
+			SecretKey: cfg.S3.SecretKey,
 		})
 		if err != nil {
-			log.Fatalf("gdrive uploader: %v", err)
+			log.Fatalf("s3 uploader: %v", err)
 		}
-		uploader = gdu
+		uploader = s3u
 	} else {
 		uploader = &noopUploader{}
 	}
@@ -57,8 +60,12 @@ func main() {
 	listUC := player.NewListUseCase(playerRepo)
 	uploadUC := uploaduc.NewUploadUseCase(uploader, maxMB)
 
-	ph := ginhandler.NewPlayerHandler(createUC, listUC)
-	uh := ginhandler.NewUploadHandler(uploadUC)
+	var presigner storage.Presigner
+	if p, ok := uploader.(storage.Presigner); ok {
+		presigner = p
+	}
+	ph := ginhandler.NewPlayerHandler(createUC, listUC, presigner)
+	uh := ginhandler.NewUploadHandler(uploadUC, presigner)
 
 	r := gin.New()
 	r.Use(gin.Recovery(), gin.Logger(), corsMiddleware())

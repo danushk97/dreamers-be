@@ -1,12 +1,12 @@
 # Dreamers Backend
 
-Go backend for the Dreamers player registration and management system. Uses **Gin**, **PostgreSQL**, **Google Drive** for file storage, and **Clean Architecture** with SOLID principles.
+Go backend for the Dreamers player registration and management system. Uses **Gin**, **PostgreSQL**, **AWS S3** for file storage, and **Clean Architecture** with SOLID principles.
 
 ## Features
 
 - **Create Player** – Register players with profile photo and Aadhar card (via upload)
 - **List Players** – Filter by name, TNBA ID, gender, age brackets; pagination
-- **File Upload** – Upload profile photo and Aadhar images to Google Drive
+- **File Upload** – Upload profile photo and Aadhar images to S3 (private, presigned URLs for reads)
 
 ## Setup
 
@@ -14,7 +14,7 @@ Go backend for the Dreamers player registration and management system. Uses **Gi
 
 - Go 1.22+
 - PostgreSQL 16+
-- Google Cloud project with Drive API enabled (for file upload)
+- AWS account with S3 (optional, for file upload)
 
 ### Database
 
@@ -24,21 +24,16 @@ Use a local or remote PostgreSQL instance. Create the `dreamers` database, then 
 export DATABASE_URL="postgres://user:pass@host:5432/dreamers?sslmode=disable"
 ```
 
-### Google Drive (optional)
+### S3 (optional)
 
-For local dev without GDrive, the app uses a no-op uploader that returns placeholder URLs.
+For local dev without S3 configured, the app uses a no-op uploader. Objects are stored **private**; reads use **presigned URLs** (1hr expiry).
 
-1. Create a [Google Cloud project](https://console.cloud.google.com/)
-2. Enable [Google Drive API](https://console.cloud.google.com/apis/library/drive.googleapis.com)
-3. Create a service account and download JSON credentials
-4. Create a folder in Drive and share it with the service account email (Editor)
-5. Set env:
-
+Configure in `config.toml` or env:
 ```bash
-export GDRIVE_CREDENTIALS_JSON="/path/to/service-account.json"
-export GDRIVE_FOLDER_ID="optional-folder-id"
-# Or inline:
-export GDRIVE_CREDENTIALS='{"type":"service_account",...}'
+AWS_S3_BUCKET=your-bucket
+AWS_REGION=us-east-1
+AWS_ACCESS_KEY_ID=...
+AWS_SECRET_ACCESS_KEY=...
 ```
 
 ### Migrations
@@ -68,7 +63,7 @@ Server runs on `http://localhost:8080` (override with `PORT`).
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| POST | `/api/v1/upload` | Upload file (form `file`), returns `{ "url": "..." }` |
+| POST | `/api/v1/upload` | Upload file (form `file`), returns `{ "key": "...", "url": "presigned..." }` |
 | POST | `/api/v1/players` | Create player (JSON body) |
 | GET | `/api/v1/players` | List players with filters |
 
@@ -78,8 +73,8 @@ Server runs on `http://localhost:8080` (override with `PORT`).
 POST /api/v1/players
 {
   "name": "Player Name",
-  "imageURL": "https://drive.google.com/...",
-  "aadharCardImageURL": "https://drive.google.com/...",
+  "imageURL": "uploads/2024/01/02/photo-abc123.jpg",
+  "aadharCardImageURL": "uploads/2024/01/02/aadhar-xyz456.jpg",
   "gender": "MALE",
   "dateOfBirth": "1990-05-15",
   "tnbaId": "TNBA123",
@@ -136,9 +131,9 @@ port = "8080"
 url = "postgres://postgres:postgres@localhost:5432/dreamers?sslmode=disable"
 migration_path = "./migrations"
 
-[gdrive]
-credentials_path = ""
-folder_id = ""
+[s3]
+bucket = ""
+region = "us-east-1"
 max_size_mb = 2
 ```
 
@@ -149,6 +144,5 @@ max_size_mb = 2
 | `PORT` | `server.port` | Server port |
 | `DATABASE_URL` | `database.url` | PostgreSQL connection |
 | `MIGRATION_PATH` | `database.migration_path` | Migration path |
-| `GDRIVE_CREDENTIALS_JSON` | - | Path to service account JSON |
-| `GDRIVE_CREDENTIALS` | - | Inline JSON credentials |
-| `GDRIVE_FOLDER_ID` | `gdrive.folder_id` | Optional parent folder ID |
+| `AWS_S3_BUCKET` | `s3.bucket` | S3 bucket for uploads |
+| `AWS_REGION` | `s3.region` | AWS region |

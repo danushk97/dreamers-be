@@ -22,8 +22,9 @@ func NewUploadUseCase(uploader storage.FileUploader, maxMB int64) *UploadUseCase
 	return &UploadUseCase{uploader: uploader, maxMB: maxMB}
 }
 
-// Upload reads from r, uploads to storage, and returns the public URL.
-func (uc *UploadUseCase) Upload(ctx context.Context, filename string, r io.Reader, contentType string) (string, error) {
+// Upload reads from r, uploads to storage, and returns the object key.
+// folder: "profile_photo", "aadhar", or empty for "uploads".
+func (uc *UploadUseCase) Upload(ctx context.Context, filename string, r io.Reader, contentType string, folder string) (string, error) {
 	maxBytes := uc.maxMB * 1024 * 1024
 	data, err := io.ReadAll(io.LimitReader(r, maxBytes+1))
 	if err != nil {
@@ -32,5 +33,5 @@ func (uc *UploadUseCase) Upload(ctx context.Context, filename string, r io.Reade
 	if int64(len(data)) > maxBytes {
 		return "", fmt.Errorf("file exceeds %d MB limit", uc.maxMB)
 	}
-	return uc.uploader.Upload(ctx, filename, data, contentType)
+	return uc.uploader.Upload(ctx, filename, data, contentType, folder)
 }

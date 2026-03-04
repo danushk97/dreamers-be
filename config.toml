@@ -7,10 +7,10 @@ port = "8080"
 url = "postgres://dbaskarr:rOOt@localhost:5432/dreamers?sslmode=disable"
 migration_path = "./migrations"
 
-[gdrive]
-# Path to service account JSON file, or leave empty
-credentials_path = ""
-# Optional: parent folder ID for uploads
-folder_id = ""
-# Max file size in MB
+[s3]
+bucket = "rally2win-2026"
+region = "ap-south-1"
+base_url = ""
 max_size_mb = 2
+access_key = ""
+secret_key = ""
