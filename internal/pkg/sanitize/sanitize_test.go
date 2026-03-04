@@ -33,7 +33,10 @@ func TestPhone(t *testing.T) {
 		{"digits only", "9876543210", "9876543210"},
 		{"with dashes", "987-654-3210", "9876543210"},
 		{"too long", "12345678901", "1234567890"},
-		{"mixed", "+91 9876543210", "9198765432"},
+		{"plus91 with space", "+91 9876543210", "9876543210"},
+		{"plus91 no space", "+919876543210", "9876543210"},
+		{"leading trailing spaces", "  9876543210  ", "9876543210"},
+		{"plus91 and spaces", "  +91 9876543210  ", "9876543210"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -72,5 +75,31 @@ func TestURL(t *testing.T) {
 	}
 	if got := URL("javascript:alert(1)"); got != "" {
 		t.Errorf("URL(js) = %q, want empty", got)
+	}
+}
+
+func TestTNBAID(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{"with prefix", "TNBA/7/0515", "7/0515"},
+		{"lowercase prefix", "tnba/7/0515", "7/0515"},
+		{"no prefix", "7/0515", "7/0515"},
+		{"leading trailing spaces", "  7/0515  ", "7/0515"},
+		{"spaces with prefix", "  TNBA/7/0515  ", "7/0515"},
+		{"multi digit", "12/1234", "12/1234"},
+		{"empty", "", ""},
+		{"invalid no slash", "TNBA123", ""},
+		{"invalid letters", "7/ABC", ""},
+		{"invalid format", "7-0515", ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := TNBAID(tt.input); got != tt.want {
+				t.Errorf("TNBAID(%q) = %q, want %q", tt.input, got, tt.want)
+			}
+		})
 	}
 }

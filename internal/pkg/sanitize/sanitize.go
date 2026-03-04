@@ -24,8 +24,14 @@ func collapseSpace(s string) string {
 	return regexp.MustCompile(`\s+`).ReplaceAllString(strings.TrimSpace(s), " ")
 }
 
-// Phone removes non-digits, keeps max 10 digits.
+// Phone trims leading/trailing spaces, strips +91 prefix if present, then extracts
+// up to 10 digits. Returns the normalized 10-digit number for storage/validation.
 func Phone(s string) string {
+	s = strings.TrimSpace(s)
+	// Trim +91 prefix if present
+	if strings.HasPrefix(s, "+91") {
+		s = strings.TrimSpace(s[3:])
+	}
 	var digits []rune
 	for _, r := range s {
 		if r >= '0' && r <= '9' {
@@ -36,9 +42,9 @@ func Phone(s string) string {
 		}
 	}
 	if len(digits) > 10 {
-		return string(digits[:10])
+		return strings.ToLower(string(digits[:10]))
 	}
-	return string(digits)
+	return strings.ToLower(string(digits))
 }
 
 // AlphanumericID strips to alphanumeric and hyphen/underscore only.
@@ -74,6 +80,25 @@ func OneOf(s string, allowed []string) string {
 		}
 	}
 	return ""
+}
+
+// TNBAID trims the "TNBA/" prefix if present (case-insensitive), validates format
+// "number/number" (e.g. 7/0515), and returns the normalized value for storage.
+// Returns "" if invalid.
+func TNBAID(s string) string {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return ""
+	}
+	// Trim TNBA/ prefix (case-insensitive)
+	if strings.HasPrefix(strings.ToUpper(s), "TNBA/") {
+		s = strings.TrimSpace(s[5:])
+	}
+	// Validate format: digits/digits (e.g. 7/0515)
+	if !regexp.MustCompile(`^\d+/\d+$`).MatchString(s) {
+		return ""
+	}
+	return strings.ToLower(s)
 }
 
 // MaxLen truncates to max length.

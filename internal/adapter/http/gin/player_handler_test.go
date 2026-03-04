@@ -21,6 +21,10 @@ func (m *mockRepo) List(ctx context.Context, f *player.ListFilter) (*player.List
 	return &player.ListResult{Players: []*player.Entity{}, Total: 0, Page: 0, Limit: 20, PageCount: 0}, nil
 }
 
+func (m *mockRepo) ExistsByTNBAID(ctx context.Context, tnbaID string) (bool, error) {
+	return false, nil
+}
+
 type mockUploader struct{}
 
 func (m *mockUploader) Upload(ctx context.Context, filename string, data []byte, contentType string, folder string) (string, error) {

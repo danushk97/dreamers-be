@@ -29,4 +29,5 @@ type ListResult struct {
 type Repository interface {
 	Create(ctx context.Context, p *Entity) error
 	List(ctx context.Context, f *ListFilter) (*ListResult, error)
+	ExistsByTNBAID(ctx context.Context, tnbaID string) (bool, error)
 }

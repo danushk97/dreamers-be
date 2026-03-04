@@ -22,6 +22,19 @@ func NewPlayerRepository(db *sql.DB) *PlayerRepository {
 	return &PlayerRepository{db: db}
 }
 
+// ExistsByTNBAID returns true if a player with the given TNBA ID already exists.
+func (r *PlayerRepository) ExistsByTNBAID(ctx context.Context, tnbaID string) (bool, error) {
+	var count int
+	err := r.db.QueryRowContext(ctx,
+		"SELECT COUNT(*) FROM players WHERE LOWER(tnba_id) = LOWER($1)",
+		tnbaID,
+	).Scan(&count)
+	if err != nil {
+		return false, err
+	}
+	return count > 0, nil
+}
+
 // Create inserts a player.
 func (r *PlayerRepository) Create(ctx context.Context, p *player.Entity) error {
 	query := `INSERT INTO players (

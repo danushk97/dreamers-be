@@ -56,13 +56,22 @@ func (uc *CreateUseCase) Create(ctx context.Context, in *CreateInput) (*player.E
 		return nil, &ValidationError{Err: err}
 	}
 
+	tnbaID := sanitize.TNBAID(in.TNBAID)
+	exists, err := uc.repo.ExistsByTNBAID(ctx, tnbaID)
+	if err != nil {
+		return nil, fmt.Errorf("check tnba id: %w", err)
+	}
+	if exists {
+		return nil, &ValidationError{Err: fmt.Errorf("player already registered")}
+	}
+
 	p := &player.Entity{
 		ID:                 uuid.New().String(),
 		Name:               sanitize.String(in.Name),
 		ImageURL:           in.ImageURL,
 		Gender:             in.Gender,
 		DateOfBirth:        in.DateOfBirth,
-		TNBAID:             sanitize.String(sanitize.AlphanumericID(in.TNBAID)),
+		TNBAID:             tnbaID,
 		District:           sanitize.OneOf(in.District, player.TamilNaduDistricts),
 		Phone:              sanitize.Phone(in.Phone),
 		RecentAchievements: sanitize.MaxLen(sanitize.String(in.RecentAchievements), 300),
@@ -93,8 +102,8 @@ func (uc *CreateUseCase) validate(in *CreateInput) error {
 	if in.DateOfBirth.IsZero() {
 		return fmt.Errorf("date of birth is required")
 	}
-	if in.TNBAID == "" {
-		return fmt.Errorf("tnba id is required")
+	if sanitize.TNBAID(in.TNBAID) == "" {
+		return fmt.Errorf("tnba id is required and must match format number/number (e.g. 7/0515)")
 	}
 	if sanitize.OneOf(in.District, player.TamilNaduDistricts) == "" {
 		return fmt.Errorf("invalid district")

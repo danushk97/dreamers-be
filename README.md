@@ -77,7 +77,7 @@ POST /api/v1/players
   "aadharCardImageURL": "uploads/2024/01/02/aadhar-xyz456.jpg",
   "gender": "MALE",
   "dateOfBirth": "1990-05-15",
-  "tnbaId": "TNBA123",
+  "tnbaId": "TNBA/7/0515",
   "district": "Chennai",
   "phone": 9876543210,
   "recentAchievements": "Optional bio",
@@ -92,7 +92,7 @@ GET /api/v1/players?name=&tnbaId=&gender=&ageFilter=&page=0&limit=20
 ```
 
 - `name` – substring search (case-insensitive)
-- `tnbaId` – substring search
+- `tnbaId` – substring search (format: `number/number` e.g. `7/0515`; `TNBA/` prefix is trimmed if present)
 - `gender` – `MALE` | `FEMALE`
 - `ageFilter` – `all` | `below-30` | `31-40` | `41-50` | `50+` (men) | `above-30` (women)
 

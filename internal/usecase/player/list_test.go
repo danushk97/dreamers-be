@@ -16,6 +16,10 @@ func (m *mockListRepo) Create(ctx context.Context, p *player.Entity) error {
 	return nil
 }
 
+func (m *mockListRepo) ExistsByTNBAID(ctx context.Context, tnbaID string) (bool, error) {
+	return false, nil
+}
+
 func (m *mockListRepo) List(ctx context.Context, f *player.ListFilter) (*player.ListResult, error) {
 	return m.result, m.err
 }
