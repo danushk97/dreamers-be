@@ -23,5 +23,4 @@
 *.pem
 
 # Local config (never commit secrets - use env vars or config.example.toml)
-config.toml
 config.local.toml

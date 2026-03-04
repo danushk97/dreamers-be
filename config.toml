@@ -1,0 +1,16 @@
+# Dreamers Backend Configuration
+
+[server]
+port = "8080"
+
+[database]
+url = "postgres://dbaskarr:rOOt@localhost:5432/dreamers?sslmode=disable"
+migration_path = "./migrations"
+
+[s3]
+bucket = "rally2win-2026"
+region = "ap-south-1"
+base_url = ""
+max_size_mb = 2
+access_key = ""
+secret_key = ""
