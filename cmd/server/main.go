@@ -58,13 +58,14 @@ func main() {
 	playerRepo := postgres.NewPlayerRepository(db)
 	createUC := player.NewCreateUseCase(playerRepo, uploader)
 	listUC := player.NewListUseCase(playerRepo)
+	getUC := player.NewGetUseCase(playerRepo)
 	uploadUC := uploaduc.NewUploadUseCase(uploader, maxMB)
 
 	var presigner storage.Presigner
 	if p, ok := uploader.(storage.Presigner); ok {
 		presigner = p
 	}
-	ph := ginhandler.NewPlayerHandler(createUC, listUC, presigner)
+	ph := ginhandler.NewPlayerHandler(createUC, listUC, getUC, presigner)
 	uh := ginhandler.NewUploadHandler(uploadUC, presigner)
 
 	r := gin.New()
@@ -75,6 +76,7 @@ func main() {
 		api.POST("/upload", uh.Upload)
 		api.POST("/players", ph.Create)
 		api.GET("/players", ginhandler.BasicAuth(ginhandler.BasicAuthCredentials), ph.List)
+		api.GET("/players/:id", ginhandler.BasicAuth(ginhandler.BasicAuthCredentials), ph.Get)
 	}
 
 	addr := ":" + cfg.Server.Port

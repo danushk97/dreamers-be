@@ -20,7 +20,7 @@ func (m *mockRepo) Create(ctx context.Context, p *player.Entity) error { return 
 func (m *mockRepo) List(ctx context.Context, f *player.ListFilter) (*player.ListResult, error) {
 	return &player.ListResult{Players: []*player.Entity{}, Total: 0, Page: 0, Limit: 20, PageCount: 0}, nil
 }
-
+func (m *mockRepo) GetByID(ctx context.Context, id string) (*player.Entity, error) { return nil, nil }
 func (m *mockRepo) ExistsByTNBAID(ctx context.Context, tnbaID string) (bool, error) {
 	return false, nil
 }
@@ -36,7 +36,8 @@ func TestPlayerHandler_Create_BadRequest(t *testing.T) {
 
 	createUC := playeruc.NewCreateUseCase(&mockRepo{}, &mockUploader{})
 	listUC := playeruc.NewListUseCase(&mockRepo{})
-	ph := NewPlayerHandler(createUC, listUC, nil)
+	getUC := playeruc.NewGetUseCase(&mockRepo{})
+	ph := NewPlayerHandler(createUC, listUC, getUC, nil)
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
@@ -55,7 +56,8 @@ func TestPlayerHandler_List(t *testing.T) {
 
 	createUC := playeruc.NewCreateUseCase(&mockRepo{}, &mockUploader{})
 	listUC := playeruc.NewListUseCase(&mockRepo{})
-	ph := NewPlayerHandler(createUC, listUC, nil)
+	getUC := playeruc.NewGetUseCase(&mockRepo{})
+	ph := NewPlayerHandler(createUC, listUC, getUC, nil)
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)

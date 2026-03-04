@@ -28,6 +28,10 @@ func (m *mockRepo) ExistsByTNBAID(ctx context.Context, tnbaID string) (bool, err
 	return m.tnbaIDExists, nil
 }
 
+func (m *mockRepo) GetByID(ctx context.Context, id string) (*player.Entity, error) {
+	return nil, nil
+}
+
 type mockUploader struct {
 	url string
 }

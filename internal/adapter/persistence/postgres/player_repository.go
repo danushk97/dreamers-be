@@ -22,6 +22,35 @@ func NewPlayerRepository(db *sql.DB) *PlayerRepository {
 	return &PlayerRepository{db: db}
 }
 
+// GetByID returns a player by ID, or nil if not found.
+func (r *PlayerRepository) GetByID(ctx context.Context, id string) (*player.Entity, error) {
+	var p player.Entity
+	var dob time.Time
+	var recentAch sql.NullString
+	var createdAtMs int64
+	err := r.db.QueryRowContext(ctx,
+		`SELECT id, name, image_url, gender, date_of_birth, tnba_id, district,
+		 phone, COALESCE(recent_achievements, ''), tshirt_size, aadhar_card_image_url, created_at
+		 FROM players WHERE id = $1`,
+		id,
+	).Scan(
+		&p.ID, &p.Name, &p.ImageURL, &p.Gender, &dob, &p.TNBAID, &p.District,
+		&p.Phone, &recentAch, &p.TshirtSize, &p.AadharCardImageURL, &createdAtMs,
+	)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	p.DateOfBirth = dob
+	p.CreatedAt = time.UnixMilli(createdAtMs)
+	if recentAch.Valid {
+		p.RecentAchievements = recentAch.String
+	}
+	return &p, nil
+}
+
 // ExistsByTNBAID returns true if a player with the given TNBA ID already exists.
 func (r *PlayerRepository) ExistsByTNBAID(ctx context.Context, tnbaID string) (bool, error) {
 	var count int

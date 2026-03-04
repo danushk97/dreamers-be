@@ -18,12 +18,13 @@ import (
 type PlayerHandler struct {
 	create    *playeruc.CreateUseCase
 	list      *playeruc.ListUseCase
+	get       *playeruc.GetUseCase
 	presigner storage.Presigner // optional, for S3 presigned URLs
 }
 
 // NewPlayerHandler returns a new player handler.
-func NewPlayerHandler(create *playeruc.CreateUseCase, list *playeruc.ListUseCase, presigner storage.Presigner) *PlayerHandler {
-	return &PlayerHandler{create: create, list: list, presigner: presigner}
+func NewPlayerHandler(create *playeruc.CreateUseCase, list *playeruc.ListUseCase, get *playeruc.GetUseCase, presigner storage.Presigner) *PlayerHandler {
+	return &PlayerHandler{create: create, list: list, get: get, presigner: presigner}
 }
 
 // CreateRequest represents the JSON body for player registration.
@@ -92,7 +93,7 @@ func (h *PlayerHandler) Create(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusCreated, gin.H{"player": h.toPlayerResponse(c, p)})
+	c.JSON(http.StatusCreated, gin.H{"player": h.toPlayerResponseWithPresign(c, p)})
 }
 
 // List lists players with filters.
@@ -127,12 +128,45 @@ func (h *PlayerHandler) List(c *gin.Context) {
 	})
 }
 
+// Get returns a single player by ID with presigned URLs.
+// GET /api/v1/players/:id
+func (h *PlayerHandler) Get(c *gin.Context) {
+	id := strings.TrimSpace(c.Param("id"))
+	if id == "" {
+		Error(c, http.StatusBadRequest, "Bad Request", "player ID required")
+		return
+	}
+
+	p, err := h.get.Get(c.Request.Context(), id)
+	if err != nil {
+		Error(c, http.StatusInternalServerError, "Internal Server Error", "An unexpected error occurred")
+		return
+	}
+	if p == nil {
+		Error(c, http.StatusNotFound, "Not Found", "player not found")
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"player": h.toPlayerResponseWithPresign(c, p)})
+}
+
+// toPlayerResponse returns a player for list (imageURL and aadharCardImageURL as keys, no presigning).
 func (h *PlayerHandler) toPlayerResponse(c *gin.Context, p *player.Entity) gin.H {
+	return h.toPlayerResponsePresign(c, p, false)
+}
+
+// toPlayerResponseWithPresign returns a player with presigned URLs (for Get, Create).
+func (h *PlayerHandler) toPlayerResponseWithPresign(c *gin.Context, p *player.Entity) gin.H {
+	return h.toPlayerResponsePresign(c, p, true)
+}
+
+func (h *PlayerHandler) toPlayerResponsePresign(c *gin.Context, p *player.Entity, presign bool) gin.H {
 	phoneNum, _ := strconv.ParseInt(p.Phone, 10, 64)
 
 	imageURL := p.ImageURL
 	aadharURL := p.AadharCardImageURL
-	if h.presigner != nil {
+	if presign && h.presigner != nil {
+		// Get by ID: include presigned URLs for image and aadhar
 		if strings.HasPrefix(p.ImageURL, "profile_photo/") || strings.HasPrefix(p.ImageURL, "uploads/") {
 			if u, err := h.presigner.Presign(c.Request.Context(), p.ImageURL, 1*time.Hour); err == nil {
 				imageURL = u
@@ -144,6 +178,7 @@ func (h *PlayerHandler) toPlayerResponse(c *gin.Context, p *player.Entity) gin.H
 			}
 		}
 	}
+	// List: presign=false, keep imageURL and aadharURL as stored keys
 
 	return gin.H{
 		"id":                 p.ID,
