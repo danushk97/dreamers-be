@@ -1,26 +1,35 @@
-# Build stage
-FROM golang:1.22-alpine AS builder
-
-RUN apk add --no-cache git ca-certificates
+# -----------------------------
+# Builder Stage
+# -----------------------------
+FROM golang:1.24-alpine AS builder
 
 WORKDIR /app
 
+RUN apk add --no-cache make
+
+# Copy go mod first for better caching
 COPY go.mod go.sum ./
 RUN go mod download
 
+# Copy source code
 COPY . .
-RUN CGO_ENABLED=0 go build -o /server ./cmd/server
 
-# Runtime stage
+# Build using Makefile
+RUN make go-build-api
+
+
+# -----------------------------
+# Runtime Stage (small image)
+# -----------------------------
 FROM alpine:3.19
 
-RUN apk add --no-cache ca-certificates
+# RUN apk add --no-cache make ca-certificates
 
 WORKDIR /app
 
-COPY --from=builder /server .
-COPY migrations ./migrations
+# Copy compiled binary only
+COPY --from=builder /app/bin/server ./server
 
 EXPOSE 8080
 
-ENTRYPOINT ["./server"]
+CMD ["./server"]

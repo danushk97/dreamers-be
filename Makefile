@@ -10,8 +10,9 @@ run:
 test:
 	go test ./...
 
-build:
-	go build $(LDFLAGS) -o bin/server ./cmd/server
+# .PHONY: go-build-api ## Build the binary file for API server
+go-build-api:
+	@CGO_ENABLED=0 GOOS=$(UNAME_OS) GOARCH=$(UNAME_ARCH) go build -v -o ./bin/server ./cmd/server
 
 migrate:
 	go run ./cmd/migrate up
