@@ -87,6 +87,7 @@ func NewFileUploader(ctx context.Context, cfg Config) (*FileUploader, error) {
 
 // Upload uploads data to S3 as private and returns the object key.
 // folder: "profile_photo" or "aadhar"; empty defaults to "uploads".
+// Path: bucket/aadhar/ or bucket/profile_photo/; filename always includes epoch for uniqueness.
 func (u *FileUploader) Upload(ctx context.Context, filename string, data []byte, contentType string, folder string) (string, error) {
 	if int64(len(data)) > u.maxSize {
 		return "", fmt.Errorf("file exceeds max size of %d MB", u.maxSize/1024/1024)
@@ -104,8 +105,12 @@ func (u *FileUploader) Upload(ctx context.Context, filename string, data []byte,
 	}
 
 	ext := path.Ext(filename)
-	safe := sanitizeKey(filename)
-	key := fmt.Sprintf("%s/%s/%s-%s%s", folder, time.Now().Format("2006/01/02"), strings.TrimSuffix(safe, ext), uuid.New().String()[:8], ext)
+	safe := strings.TrimSuffix(sanitizeKey(filename), ext)
+	if safe == "" {
+		safe = "file"
+	}
+	epoch := time.Now().Unix()
+	key := fmt.Sprintf("%s/%s-%d-%s%s", folder, safe, epoch, uuid.New().String()[:8], ext)
 
 	input := &s3.PutObjectInput{
 		Bucket:      aws.String(u.bucket),
