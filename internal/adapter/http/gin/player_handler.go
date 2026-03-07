@@ -1,6 +1,7 @@
 package gin
 
 import (
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -88,6 +89,7 @@ func (h *PlayerHandler) Create(c *gin.Context) {
 		if playeruc.IsValidationError(err) {
 			Error(c, http.StatusBadRequest, "Validation Error", err.Error())
 		} else {
+			fmt.Println("create player error:", err.Error())
 			Error(c, http.StatusInternalServerError, "Internal Server Error", "An unexpected error occurred")
 		}
 		return
@@ -103,12 +105,12 @@ func (h *PlayerHandler) List(c *gin.Context) {
 	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "20"))
 
 	f := &player.ListFilter{
-		Name:       sanitize.String(c.Query("name")),
-		TNBAID:     sanitize.String(c.Query("tnbaId")),
-		Gender:     sanitize.OneOf(c.Query("gender"), []string{player.GenderMale, player.GenderFemale}),
-		AgeFilter:  sanitize.OneOf(c.Query("ageFilter"), []string{"all", "below-30", "31-40", "41-50", "50+", "above-30"}),
-		Page:       page,
-		Limit:      limit,
+		Name:      sanitize.String(c.Query("name")),
+		TNBAID:    sanitize.String(c.Query("tnbaId")),
+		Gender:    sanitize.OneOf(c.Query("gender"), []string{player.GenderMale, player.GenderFemale}),
+		AgeFilter: sanitize.OneOf(c.Query("ageFilter"), []string{"all", "below-30", "31-40", "41-50", "50+", "above-30"}),
+		Page:      page,
+		Limit:     limit,
 	}
 
 	res, err := h.list.List(c.Request.Context(), f)

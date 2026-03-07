@@ -1,34 +1,21 @@
-# -----------------------------
-# Builder Stage
-# -----------------------------
-FROM golang:1.24-alpine AS builder
+FROM --platform=$BUILDPLATFORM golang:1.24 AS builder
 
 WORKDIR /app
 
-RUN apk add --no-cache make
+ENV CGO_ENABLED=0
 
-# Copy go mod first for better caching
 COPY go.mod go.sum ./
 RUN go mod download
 
-# Copy source code
 COPY . .
 
-# Build using Makefile
-RUN make go-build-api
+RUN mkdir -p bin && GOOS=linux GOARCH=amd64 go build -v -o ./bin/server ./cmd/server
 
-
-# -----------------------------
-# Runtime Stage (small image)
-# -----------------------------
-FROM alpine:3.19
-
-# RUN apk add --no-cache make ca-certificates
+FROM debian:bookworm-slim
 
 WORKDIR /app
 
-# Copy compiled binary only
-COPY --from=builder /app/bin/server ./server
+COPY --from=builder /app/bin/server .
 
 EXPOSE 8080
 

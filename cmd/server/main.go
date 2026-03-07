@@ -12,8 +12,8 @@ import (
 	ginhandler "github.com/dreamers-be/internal/adapter/http/gin"
 	"github.com/dreamers-be/internal/adapter/persistence/postgres"
 	"github.com/dreamers-be/internal/adapter/storage/s3"
-	"github.com/dreamers-be/internal/domain/storage"
 	appconfig "github.com/dreamers-be/internal/config"
+	"github.com/dreamers-be/internal/domain/storage"
 	"github.com/dreamers-be/internal/usecase/player"
 	uploaduc "github.com/dreamers-be/internal/usecase/upload"
 )
@@ -71,7 +71,7 @@ func main() {
 	r := gin.New()
 	r.Use(gin.Recovery(), gin.Logger(), corsMiddleware())
 
-	api := r.Group("/api/v1")
+	api := r.Group("/v1")
 	{
 		api.POST("/upload", uh.Upload)
 		api.POST("/players", ph.Create)
