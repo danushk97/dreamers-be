@@ -15,7 +15,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
-	"github.com/google/uuid"
 
 	"github.com/dreamers-be/internal/domain/storage"
 )
@@ -104,13 +103,15 @@ func (u *FileUploader) Upload(ctx context.Context, filename string, data []byte,
 		folder = "uploads"
 	}
 
+	// Remove all spaces from filename (e.g. "test dike.png" -> "testdike.png")
+	filename = strings.ReplaceAll(filename, " ", "")
 	ext := path.Ext(filename)
 	safe := strings.TrimSuffix(sanitizeKey(filename), ext)
 	if safe == "" {
 		safe = "file"
 	}
 	epoch := time.Now().Unix()
-	key := fmt.Sprintf("%s/%s-%d-%s%s", folder, safe, epoch, uuid.New().String()[:8], ext)
+	key := fmt.Sprintf("%s/%s-%d%s", folder, safe, epoch, ext)
 
 	input := &s3.PutObjectInput{
 		Bucket:      aws.String(u.bucket),

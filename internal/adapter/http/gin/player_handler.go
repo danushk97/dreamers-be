@@ -166,13 +166,14 @@ func (h *PlayerHandler) toPlayerResponsePresign(c *gin.Context, p *player.Entity
 	imageURL := p.ImageURL
 	aadharURL := p.AadharCardImageURL
 	if presign && h.presigner != nil {
-		// Get by ID: include presigned URLs for image and aadhar
-		if strings.HasPrefix(p.ImageURL, "profile_photo/") || strings.HasPrefix(p.ImageURL, "uploads/") {
+		// Presign S3 keys for both profile photo and aadhar. Try presigning any non-empty value
+		// that looks like an S3 key (not an external http/https URL).
+		if p.ImageURL != "" && !strings.HasPrefix(p.ImageURL, "http://") && !strings.HasPrefix(p.ImageURL, "https://") {
 			if u, err := h.presigner.Presign(c.Request.Context(), p.ImageURL, 1*time.Hour); err == nil {
 				imageURL = u
 			}
 		}
-		if strings.HasPrefix(p.AadharCardImageURL, "aadhar/") || strings.HasPrefix(p.AadharCardImageURL, "uploads/") {
+		if p.AadharCardImageURL != "" && !strings.HasPrefix(p.AadharCardImageURL, "http://") && !strings.HasPrefix(p.AadharCardImageURL, "https://") {
 			if u, err := h.presigner.Presign(c.Request.Context(), p.AadharCardImageURL, 1*time.Hour); err == nil {
 				aadharURL = u
 			}

@@ -39,9 +39,25 @@ func (h *UploadHandler) Upload(c *gin.Context) {
 		filename = "upload"
 	}
 
+	// Accept type from multiple form fields (type, folder, uploadType) for client flexibility
 	folder := c.PostForm("type")
-	if folder != storage.FolderProfilePhoto && folder != storage.FolderAadhar {
-		folder = "uploads"
+	if folder == "" {
+		folder = c.PostForm("folder")
+	}
+	if folder == "" {
+		folder = c.PostForm("uploadType")
+	}
+	folder = strings.TrimSpace(strings.ToLower(folder))
+	// Normalize common client values: profilePhoto, profile-photo -> profile_photo; aadharCard, aadhar-card -> aadhar
+	switch folder {
+	case "profile_photo", "profilephoto", "profile-photo":
+		folder = storage.FolderProfilePhoto
+	case "aadhar", "aadharcard", "aadhar-card", "aadhar_card":
+		folder = storage.FolderAadhar
+	default:
+		if folder != storage.FolderProfilePhoto && folder != storage.FolderAadhar {
+			folder = "uploads"
+		}
 	}
 
 	key, err := h.uc.Upload(c.Request.Context(), filename, file, header.Header.Get("Content-Type"), folder)
