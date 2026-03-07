@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"time"
 
 	"github.com/google/uuid"
@@ -59,9 +60,11 @@ func (uc *CreateUseCase) Create(ctx context.Context, in *CreateInput) (*player.E
 	tnbaID := sanitize.TNBAID(in.TNBAID)
 	exists, err := uc.repo.ExistsByTNBAID(ctx, tnbaID)
 	if err != nil {
+		log.Printf("Create player: ExistsByTNBAID error tnbaId=%s: %v", tnbaID, err)
 		return nil, fmt.Errorf("check tnba id: %w", err)
 	}
 	if exists {
+		log.Printf("Create player: duplicate tnbaId=%s", tnbaID)
 		return nil, &ValidationError{Err: fmt.Errorf("player already registered")}
 	}
 
@@ -81,6 +84,7 @@ func (uc *CreateUseCase) Create(ctx context.Context, in *CreateInput) (*player.E
 	}
 
 	if err := uc.repo.Create(ctx, p); err != nil {
+		log.Printf("Create player: repo.Create error id=%s: %v", p.ID, err)
 		return nil, fmt.Errorf("create player: %w", err)
 	}
 	return p, nil

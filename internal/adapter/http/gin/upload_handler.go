@@ -1,6 +1,7 @@
 package gin
 
 import (
+	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -29,6 +30,7 @@ func NewUploadHandler(uc *upload.UploadUseCase, presigner storage.Presigner) *Up
 func (h *UploadHandler) Upload(c *gin.Context) {
 	file, header, err := c.Request.FormFile("file")
 	if err != nil {
+		log.Printf("Upload: file required but missing")
 		Error(c, http.StatusBadRequest, "Bad Request", "file is required")
 		return
 	}
@@ -62,6 +64,7 @@ func (h *UploadHandler) Upload(c *gin.Context) {
 
 	key, err := h.uc.Upload(c.Request.Context(), filename, file, header.Header.Get("Content-Type"), folder)
 	if err != nil {
+		log.Printf("Upload error filename=%s folder=%s: %v", filename, folder, err)
 		Error(c, http.StatusInternalServerError, "Internal Server Error", "An unexpected error occurred")
 		return
 	}
@@ -73,11 +76,13 @@ func (h *UploadHandler) Upload(c *gin.Context) {
 		if err == nil {
 			resp["url"] = url
 		} else {
+			log.Printf("Upload: presign failed for key=%s: %v", key, err)
 			resp["url"] = key
 		}
 	} else {
 		resp["url"] = key
 	}
 
+	log.Printf("Upload success filename=%s folder=%s key=%s", filename, folder, key)
 	c.JSON(http.StatusOK, resp)
 }

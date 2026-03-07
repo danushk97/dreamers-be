@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"log"
 	"mime"
 	"path"
 	"strings"
@@ -123,9 +124,10 @@ func (u *FileUploader) Upload(ctx context.Context, filename string, data []byte,
 
 	_, err := u.client.PutObject(ctx, input)
 	if err != nil {
+		log.Printf("S3 PutObject failed key=%s: %v", key, err)
 		return "", fmt.Errorf("s3 put object: %w", err)
 	}
-
+	log.Printf("S3 upload success key=%s size=%d", key, len(data))
 	return key, nil
 }
 
@@ -137,6 +139,7 @@ func (u *FileUploader) Presign(ctx context.Context, key string, expiry time.Dura
 		Key:    aws.String(key),
 	}, s3.WithPresignExpires(expiry))
 	if err != nil {
+		log.Printf("S3 Presign failed key=%s: %v", key, err)
 		return "", fmt.Errorf("presign: %w", err)
 	}
 	return req.URL, nil

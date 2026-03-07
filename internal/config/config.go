@@ -1,6 +1,8 @@
 package config
 
 import (
+	"log"
+
 	"github.com/spf13/viper"
 )
 
@@ -42,7 +44,8 @@ func Load() (Config, error) {
 	v.SetDefault("server.port", "8080")
 	v.SetDefault("database.url", "postgres://postgres:postgres@localhost:5432/dreamers?sslmode=disable")
 	v.SetDefault("database.migration_path", "./migrations")
-	v.SetDefault("s3.region", "us-east-1")
+	v.SetDefault("s3.bucket", "rally2win-2026")
+	v.SetDefault("s3.region", "ap-south-1")
 	v.SetDefault("s3.max_size_mb", 2)
 
 	v.SetEnvPrefix("")
@@ -59,6 +62,9 @@ func Load() (Config, error) {
 		if _, ok := err.(viper.ConfigFileNotFoundError); !ok {
 			return Config{}, err
 		}
+		log.Printf("Config: no config file found, using defaults and env")
+	} else {
+		log.Printf("Config: loaded from %s", v.ConfigFileUsed())
 	}
 
 	var cfg Config

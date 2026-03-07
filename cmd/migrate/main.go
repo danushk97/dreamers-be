@@ -40,4 +40,5 @@ func main() {
 	if err := goose.Run(cmd, db, dir); err != nil {
 		log.Fatalf("goose %s: %v", cmd, err)
 	}
+	log.Printf("Migration %s completed successfully", cmd)
 }

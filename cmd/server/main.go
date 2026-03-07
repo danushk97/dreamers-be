@@ -23,12 +23,19 @@ func main() {
 	if err != nil {
 		log.Fatalf("load config: %v", err)
 	}
+	log.Printf("Config loaded, server port=%s", cfg.Server.Port)
+	log.Printf("S3 config: bucket=%s region=%s", cfg.S3.Bucket, cfg.S3.Region)
 
+	log.Printf("Connecting to database...")
 	db, err := sql.Open("postgres", cfg.Database.URL)
 	if err != nil {
 		log.Fatalf("open db: %v", err)
 	}
 	defer db.Close()
+	if err := db.Ping(); err != nil {
+		log.Fatalf("db ping: %v", err)
+	}
+	log.Print("Database connected")
 
 	maxMB := cfg.S3.MaxSizeMB
 	if maxMB <= 0 {
@@ -51,8 +58,10 @@ func main() {
 			log.Fatalf("s3 uploader: %v", err)
 		}
 		uploader = s3u
+		log.Printf("S3 uploader configured, bucket=%s region=%s", cfg.S3.Bucket, cfg.S3.Region)
 	} else {
 		uploader = &noopUploader{}
+		log.Printf("S3 not configured, using noop uploader")
 	}
 
 	playerRepo := postgres.NewPlayerRepository(db)
@@ -64,9 +73,13 @@ func main() {
 	var presigner storage.Presigner
 	if p, ok := uploader.(storage.Presigner); ok {
 		presigner = p
+		log.Printf("Presigner available for presigned URLs")
+	} else {
+		log.Printf("Presigner not available (noop uploader), presigned URLs disabled")
 	}
 	ph := ginhandler.NewPlayerHandler(createUC, listUC, getUC, presigner)
 	uh := ginhandler.NewUploadHandler(uploadUC, presigner)
+	log.Printf("Use cases and handlers initialized")
 
 	r := gin.New()
 	r.Use(gin.Recovery(), gin.Logger(), corsMiddleware())
@@ -78,6 +91,7 @@ func main() {
 		api.GET("/players", ginhandler.BasicAuth(ginhandler.BasicAuthCredentials), ph.List)
 		api.GET("/players/:id", ginhandler.BasicAuth(ginhandler.BasicAuthCredentials), ph.Get)
 	}
+	log.Printf("API routes registered")
 
 	addr := ":" + cfg.Server.Port
 	log.Printf("Server starting on %s", addr)

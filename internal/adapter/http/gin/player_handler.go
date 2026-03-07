@@ -1,7 +1,7 @@
 package gin
 
 import (
-	"fmt"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -87,14 +87,15 @@ func (h *PlayerHandler) Create(c *gin.Context) {
 	p, err := h.create.Create(c.Request.Context(), in)
 	if err != nil {
 		if playeruc.IsValidationError(err) {
+			log.Printf("Create player validation error: %v", err)
 			Error(c, http.StatusBadRequest, "Validation Error", err.Error())
 		} else {
-			fmt.Println("create player error:", err.Error())
+			log.Printf("Create player error: %v", err)
 			Error(c, http.StatusInternalServerError, "Internal Server Error", "An unexpected error occurred")
 		}
 		return
 	}
-
+	log.Printf("Player created id=%s tnbaId=%s name=%s", p.ID, p.TNBAID, p.Name)
 	c.JSON(http.StatusCreated, gin.H{"player": h.toPlayerResponseWithPresign(c, p)})
 }
 
@@ -115,9 +116,11 @@ func (h *PlayerHandler) List(c *gin.Context) {
 
 	res, err := h.list.List(c.Request.Context(), f)
 	if err != nil {
+		log.Printf("List players error: %v", err)
 		Error(c, http.StatusInternalServerError, "Internal Server Error", "An unexpected error occurred")
 		return
 	}
+	log.Printf("List players page=%d limit=%d total=%d", f.Page, f.Limit, res.Total)
 
 	items := make([]gin.H, len(res.Players))
 	for i, p := range res.Players {
@@ -141,14 +144,16 @@ func (h *PlayerHandler) Get(c *gin.Context) {
 
 	p, err := h.get.Get(c.Request.Context(), id)
 	if err != nil {
+		log.Printf("Get player id=%s error: %v", id, err)
 		Error(c, http.StatusInternalServerError, "Internal Server Error", "An unexpected error occurred")
 		return
 	}
 	if p == nil {
+		log.Printf("Get player id=%s not found", id)
 		Error(c, http.StatusNotFound, "Not Found", "player not found")
 		return
 	}
-
+	log.Printf("Get player id=%s name=%s", p.ID, p.Name)
 	c.JSON(http.StatusOK, gin.H{"player": h.toPlayerResponseWithPresign(c, p)})
 }
 
@@ -167,9 +172,9 @@ func (h *PlayerHandler) toPlayerResponsePresign(c *gin.Context, p *player.Entity
 
 	imageURL := p.ImageURL
 	aadharURL := p.AadharCardImageURL
+
 	if presign && h.presigner != nil {
-		// Presign S3 keys for both profile photo and aadhar. Try presigning any non-empty value
-		// that looks like an S3 key (not an external http/https URL).
+		// Presign S3 keys for both profile photo and aadhar.
 		if p.ImageURL != "" && !strings.HasPrefix(p.ImageURL, "http://") && !strings.HasPrefix(p.ImageURL, "https://") {
 			if u, err := h.presigner.Presign(c.Request.Context(), p.ImageURL, 1*time.Hour); err == nil {
 				imageURL = u

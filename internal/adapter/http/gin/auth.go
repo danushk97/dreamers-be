@@ -2,6 +2,7 @@ package gin
 
 import (
 	"encoding/base64"
+	"log"
 	"net/http"
 	"strings"
 
@@ -19,6 +20,7 @@ func BasicAuth(accounts map[string]string) func(*gin.Context) {
 	return func(c *gin.Context) {
 		auth := c.GetHeader("Authorization")
 		if auth == "" {
+			log.Printf("BasicAuth: missing Authorization header")
 			Error(c, http.StatusUnauthorized, "Unauthorized", "missing Authorization header")
 			c.Abort()
 			return
@@ -26,6 +28,7 @@ func BasicAuth(accounts map[string]string) func(*gin.Context) {
 
 		const prefix = "Basic "
 		if !strings.HasPrefix(auth, prefix) {
+			log.Printf("BasicAuth: invalid Authorization format")
 			Error(c, http.StatusUnauthorized, "Unauthorized", "invalid Authorization format")
 			c.Abort()
 			return
@@ -33,6 +36,7 @@ func BasicAuth(accounts map[string]string) func(*gin.Context) {
 
 		decoded, err := base64.StdEncoding.DecodeString(auth[len(prefix):])
 		if err != nil {
+			log.Printf("BasicAuth: invalid credentials (decode error)")
 			Error(c, http.StatusUnauthorized, "Unauthorized", "invalid credentials")
 			c.Abort()
 			return
@@ -40,6 +44,7 @@ func BasicAuth(accounts map[string]string) func(*gin.Context) {
 
 		pair := strings.SplitN(string(decoded), ":", 2)
 		if len(pair) != 2 {
+			log.Printf("BasicAuth: invalid credentials (malformed)")
 			Error(c, http.StatusUnauthorized, "Unauthorized", "invalid credentials")
 			c.Abort()
 			return
@@ -47,6 +52,7 @@ func BasicAuth(accounts map[string]string) func(*gin.Context) {
 
 		username, password := pair[0], pair[1]
 		if expected, ok := accounts[username]; !ok || expected != password {
+			log.Printf("BasicAuth: invalid credentials for user=%s", username)
 			Error(c, http.StatusUnauthorized, "Unauthorized", "invalid username or password")
 			c.Abort()
 			return
