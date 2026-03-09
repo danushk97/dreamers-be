@@ -12,7 +12,7 @@ import (
 // BasicAuthCredentials holds hardcoded credentials for list players.
 // TODO: move to config and proper auth
 var BasicAuthCredentials = map[string]string{
-	"admin": "dreamers-secret",
+	"admin": "johnny@123",
 }
 
 // BasicAuth returns middleware that validates Basic auth. Uses Error response on failure.
