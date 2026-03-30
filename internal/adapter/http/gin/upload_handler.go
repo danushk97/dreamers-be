@@ -9,18 +9,18 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/dreamers-be/internal/domain/storage"
-	"github.com/dreamers-be/internal/usecase/upload"
+	uploadsrv "github.com/dreamers-be/internal/server/upload"
 )
 
 // UploadHandler handles file upload endpoints.
 type UploadHandler struct {
-	uc        *upload.UploadUseCase
+	server    *uploadsrv.UploadServer
 	presigner storage.Presigner // optional, for S3 presigned URLs
 }
 
 // NewUploadHandler returns a new upload handler.
-func NewUploadHandler(uc *upload.UploadUseCase, presigner storage.Presigner) *UploadHandler {
-	return &UploadHandler{uc: uc, presigner: presigner}
+func NewUploadHandler(server *uploadsrv.UploadServer, presigner storage.Presigner) *UploadHandler {
+	return &UploadHandler{server: server, presigner: presigner}
 }
 
 // Upload accepts a multipart file, uploads to S3, and returns key + presigned URL.
@@ -41,30 +41,21 @@ func (h *UploadHandler) Upload(c *gin.Context) {
 		filename = "upload"
 	}
 
-	// Accept type from multiple form fields (type, folder, uploadType) for client flexibility
-	folder := c.PostForm("type")
-	if folder == "" {
-		folder = c.PostForm("folder")
-	}
-	if folder == "" {
-		folder = c.PostForm("uploadType")
-	}
-	folder = strings.TrimSpace(strings.ToLower(folder))
-	// Normalize common client values: profilePhoto, profile-photo -> profile_photo; aadharCard, aadhar-card -> aadhar
-	switch folder {
-	case "profile_photo", "profilephoto", "profile-photo":
-		folder = storage.FolderProfilePhoto
-	case "aadhar", "aadharcard", "aadhar-card", "aadhar_card":
-		folder = storage.FolderAadhar
-	default:
-		if folder != storage.FolderProfilePhoto && folder != storage.FolderAadhar {
-			folder = "uploads"
-		}
-	}
+	rawType := c.PostForm("type")
+	rawFolder := c.PostForm("folder")
+	rawUploadType := c.PostForm("uploadType")
 
-	key, err := h.uc.Upload(c.Request.Context(), filename, file, header.Header.Get("Content-Type"), folder)
+	key, err := h.server.Upload(
+		c.Request.Context(),
+		filename,
+		file,
+		header.Header.Get("Content-Type"),
+		rawType,
+		rawFolder,
+		rawUploadType,
+	)
 	if err != nil {
-		log.Printf("Upload error filename=%s folder=%s: %v", filename, folder, err)
+		log.Printf("Upload error filename=%s type=%s folder=%s uploadType=%s: %v", filename, rawType, rawFolder, rawUploadType, err)
 		Error(c, http.StatusInternalServerError, "Internal Server Error", "An unexpected error occurred")
 		return
 	}
@@ -83,6 +74,6 @@ func (h *UploadHandler) Upload(c *gin.Context) {
 		resp["url"] = key
 	}
 
-	log.Printf("Upload success filename=%s folder=%s key=%s", filename, folder, key)
+	log.Printf("Upload success filename=%s key=%s", filename, key)
 	c.JSON(http.StatusOK, resp)
 }

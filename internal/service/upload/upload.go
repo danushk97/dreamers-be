@@ -1,4 +1,4 @@
-package upload
+package uploadservice
 
 import (
 	"context"
@@ -8,23 +8,23 @@ import (
 	"github.com/dreamers-be/internal/domain/storage"
 )
 
-// UploadUseCase handles file uploads.
-type UploadUseCase struct {
+// UploadService handles file upload business rules (size limits).
+type UploadService struct {
 	uploader storage.FileUploader
 	maxMB    int64
 }
 
-// NewUploadUseCase returns a new upload use case.
-func NewUploadUseCase(uploader storage.FileUploader, maxMB int64) *UploadUseCase {
+// NewUploadService returns a new upload service.
+func NewUploadService(uploader storage.FileUploader, maxMB int64) *UploadService {
 	if maxMB <= 0 {
 		maxMB = 2
 	}
-	return &UploadUseCase{uploader: uploader, maxMB: maxMB}
+	return &UploadService{uploader: uploader, maxMB: maxMB}
 }
 
 // Upload reads from r, uploads to storage, and returns the object key.
-// folder: "profile_photo", "aadhar", or empty for "uploads".
-func (uc *UploadUseCase) Upload(ctx context.Context, filename string, r io.Reader, contentType string, folder string) (string, error) {
+// folder must be already normalized by the server layer.
+func (uc *UploadService) Upload(ctx context.Context, filename string, r io.Reader, contentType string, folder string) (string, error) {
 	maxBytes := uc.maxMB * 1024 * 1024
 	data, err := io.ReadAll(io.LimitReader(r, maxBytes+1))
 	if err != nil {
@@ -35,3 +35,4 @@ func (uc *UploadUseCase) Upload(ctx context.Context, filename string, r io.Reade
 	}
 	return uc.uploader.Upload(ctx, filename, data, contentType, folder)
 }
+

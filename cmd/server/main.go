@@ -14,8 +14,10 @@ import (
 	"github.com/dreamers-be/internal/adapter/storage/s3"
 	appconfig "github.com/dreamers-be/internal/config"
 	"github.com/dreamers-be/internal/domain/storage"
-	"github.com/dreamers-be/internal/usecase/player"
-	uploaduc "github.com/dreamers-be/internal/usecase/upload"
+	playersrv "github.com/dreamers-be/internal/server/player"
+	uploadsrv "github.com/dreamers-be/internal/server/upload"
+	playersvc "github.com/dreamers-be/internal/service/player"
+	uploadsvc "github.com/dreamers-be/internal/service/upload"
 )
 
 func main() {
@@ -65,10 +67,11 @@ func main() {
 	}
 
 	playerRepo := postgres.NewPlayerRepository(db)
-	createUC := player.NewCreateUseCase(playerRepo, uploader)
-	listUC := player.NewListUseCase(playerRepo)
-	getUC := player.NewGetUseCase(playerRepo)
-	uploadUC := uploaduc.NewUploadUseCase(uploader, maxMB)
+	playerSvc := playersvc.NewPlayerService(playerRepo)
+	uploadSvc := uploadsvc.NewUploadService(uploader, maxMB)
+
+	playerSrv := playersrv.NewPlayerServer(playerSvc)
+	uploadSrv := uploadsrv.NewUploadServer(uploadSvc)
 
 	var presigner storage.Presigner
 	if p, ok := uploader.(storage.Presigner); ok {
@@ -77,8 +80,8 @@ func main() {
 	} else {
 		log.Printf("Presigner not available (noop uploader), presigned URLs disabled")
 	}
-	ph := ginhandler.NewPlayerHandler(createUC, listUC, getUC, presigner)
-	uh := ginhandler.NewUploadHandler(uploadUC, presigner)
+	ph := ginhandler.NewPlayerHandler(playerSrv, presigner)
+	uh := ginhandler.NewUploadHandler(uploadSrv, presigner)
 	log.Printf("Use cases and handlers initialized")
 
 	r := gin.New()

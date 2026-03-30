@@ -1,4 +1,4 @@
-.PHONY: run test migrate build
+.PHONY: run test migrate build mockgen
 
 # Use external linker on macOS to avoid dyld "missing LC_UUID" (Go issue #68678).
 # Requires Xcode Command Line Tools. Alternatively, upgrade to Go 1.24+.
@@ -16,3 +16,12 @@ go-build-api:
 
 migrate:
 	go run ./cmd/migrate up
+
+MOCKGEN_VERSION := v1.6.0
+MOCKGEN_BIN := ./bin/tools/mockgen
+
+mockgen:
+	@mkdir -p ./internal/mocks ./bin/tools
+	@if [ ! -x "$(MOCKGEN_BIN)" ]; then GOSUMDB=off GOBIN=$(CURDIR)/bin/tools go install github.com/golang/mock/mockgen@$(MOCKGEN_VERSION); fi
+	@$(MOCKGEN_BIN) -source=internal/domain/player/repository.go -destination=internal/mocks/mock_player_repository.go -package=mocks
+	@$(MOCKGEN_BIN) -source=internal/domain/storage/file_uploader.go -destination=internal/mocks/mock_storage_interfaces.go -package=mocks

@@ -2,7 +2,6 @@ package gin
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -11,33 +10,20 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/dreamers-be/internal/domain/player"
-	playeruc "github.com/dreamers-be/internal/usecase/player"
+	"github.com/dreamers-be/internal/mocks"
+	playersrv "github.com/dreamers-be/internal/server/player"
+	playersvc "github.com/dreamers-be/internal/service/player"
+	"github.com/golang/mock/gomock"
 )
-
-type mockRepo struct{}
-
-func (m *mockRepo) Create(ctx context.Context, p *player.Entity) error { return nil }
-func (m *mockRepo) List(ctx context.Context, f *player.ListFilter) (*player.ListResult, error) {
-	return &player.ListResult{Players: []*player.Entity{}, Total: 0, Page: 0, Limit: 20, PageCount: 0}, nil
-}
-func (m *mockRepo) GetByID(ctx context.Context, id string) (*player.Entity, error) { return nil, nil }
-func (m *mockRepo) ExistsByTNBAID(ctx context.Context, tnbaID string) (bool, error) {
-	return false, nil
-}
-
-type mockUploader struct{}
-
-func (m *mockUploader) Upload(ctx context.Context, filename string, data []byte, contentType string, folder string) (string, error) {
-	return "profile_photo/placeholder/" + filename, nil
-}
 
 func TestPlayerHandler_Create_BadRequest(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
-	createUC := playeruc.NewCreateUseCase(&mockRepo{}, &mockUploader{})
-	listUC := playeruc.NewListUseCase(&mockRepo{})
-	getUC := playeruc.NewGetUseCase(&mockRepo{})
-	ph := NewPlayerHandler(createUC, listUC, getUC, nil)
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	repo := mocks.NewMockRepository(ctrl)
+	ps := playersrv.NewPlayerServer(playersvc.NewPlayerService(repo))
+	ph := NewPlayerHandler(ps, nil)
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
@@ -54,10 +40,13 @@ func TestPlayerHandler_Create_BadRequest(t *testing.T) {
 func TestPlayerHandler_List(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
-	createUC := playeruc.NewCreateUseCase(&mockRepo{}, &mockUploader{})
-	listUC := playeruc.NewListUseCase(&mockRepo{})
-	getUC := playeruc.NewGetUseCase(&mockRepo{})
-	ph := NewPlayerHandler(createUC, listUC, getUC, nil)
+	expected := &player.ListResult{Players: []*player.Entity{}, Total: 0, Page: 0, Limit: 20, PageCount: 0}
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	repo := mocks.NewMockRepository(ctrl)
+	repo.EXPECT().List(gomock.Any(), gomock.Any()).Return(expected, nil).Times(1)
+	ps := playersrv.NewPlayerServer(playersvc.NewPlayerService(repo))
+	ph := NewPlayerHandler(ps, nil)
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)

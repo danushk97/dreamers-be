@@ -11,82 +11,32 @@ import (
 
 	"github.com/dreamers-be/internal/domain/player"
 	"github.com/dreamers-be/internal/domain/storage"
-	"github.com/dreamers-be/internal/pkg/sanitize"
-	playeruc "github.com/dreamers-be/internal/usecase/player"
+	playersvc "github.com/dreamers-be/internal/service/player"
+	playersrv "github.com/dreamers-be/internal/server/player"
 )
 
 // PlayerHandler handles player HTTP endpoints.
 type PlayerHandler struct {
-	create    *playeruc.CreateUseCase
-	list      *playeruc.ListUseCase
-	get       *playeruc.GetUseCase
+	server    *playersrv.PlayerServer
 	presigner storage.Presigner // optional, for S3 presigned URLs
 }
 
 // NewPlayerHandler returns a new player handler.
-func NewPlayerHandler(create *playeruc.CreateUseCase, list *playeruc.ListUseCase, get *playeruc.GetUseCase, presigner storage.Presigner) *PlayerHandler {
-	return &PlayerHandler{create: create, list: list, get: get, presigner: presigner}
-}
-
-// CreateRequest represents the JSON body for player registration.
-type CreateRequest struct {
-	Name               string `json:"name"`
-	ImageURL           string `json:"imageURL"`
-	AadharCardImageURL string `json:"aadharCardImageURL"`
-	Gender             string `json:"gender"`
-	DateOfBirth        string `json:"dateOfBirth"`
-	TNBAID             string `json:"tnbaId"`
-	District           string `json:"district"`
-	Phone              any    `json:"phone"` // number or string from JSON
-	RecentAchievements string `json:"recentAchievements"`
-	TshirtSize         string `json:"tshirtSize"`
+func NewPlayerHandler(server *playersrv.PlayerServer, presigner storage.Presigner) *PlayerHandler {
+	return &PlayerHandler{server: server, presigner: presigner}
 }
 
 // Create creates a new player.
 // POST /api/v1/players
 func (h *PlayerHandler) Create(c *gin.Context) {
-	var req CreateRequest
+	var req playersrv.CreateRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		Error(c, http.StatusBadRequest, "Bad Request", "invalid request body")
 		return
 	}
-
-	dob, err := time.Parse("2006-01-02", sanitize.String(req.DateOfBirth))
+	p, err := h.server.Create(c.Request.Context(), &req)
 	if err != nil {
-		Error(c, http.StatusBadRequest, "Validation Error", "invalid date of birth (use YYYY-MM-DD)")
-		return
-	}
-
-	phoneStr := ""
-	switch v := req.Phone.(type) {
-	case float64:
-		phoneStr = strconv.FormatInt(int64(v), 10)
-	case string:
-		phoneStr = v
-	default:
-		phoneStr = ""
-	}
-
-	// imageURL / aadharCardImageURL: S3 key (uploads/...) or external URL
-	imageKey := strings.TrimSpace(req.ImageURL)
-	aadharKey := strings.TrimSpace(req.AadharCardImageURL)
-
-	in := &playeruc.CreateInput{
-		Name:               sanitize.String(req.Name),
-		ImageURL:           imageKey,
-		AadharCardImageURL: aadharKey,
-		Gender:             sanitize.OneOf(req.Gender, []string{player.GenderMale, player.GenderFemale}),
-		DateOfBirth:        dob,
-		TNBAID:             sanitize.String(req.TNBAID),
-		District:           sanitize.OneOf(req.District, player.TamilNaduDistricts),
-		Phone:              sanitize.Phone(phoneStr),
-		RecentAchievements: sanitize.MaxLen(sanitize.String(req.RecentAchievements), 300),
-		TshirtSize:         sanitize.OneOf(req.TshirtSize, player.ValidTshirtSizes),
-	}
-
-	p, err := h.create.Create(c.Request.Context(), in)
-	if err != nil {
-		if playeruc.IsValidationError(err) {
+		if playersvc.IsValidationError(err) {
 			log.Printf("Create player validation error: %v", err)
 			Error(c, http.StatusBadRequest, "Validation Error", err.Error())
 		} else {
@@ -102,25 +52,22 @@ func (h *PlayerHandler) Create(c *gin.Context) {
 // List lists players with filters.
 // GET /api/v1/players?name=&tnbaId=&gender=&ageFilter=&page=0&limit=20
 func (h *PlayerHandler) List(c *gin.Context) {
-	page, _ := strconv.Atoi(c.DefaultQuery("page", "0"))
-	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "20"))
-
-	f := &player.ListFilter{
-		Name:      sanitize.String(c.Query("name")),
-		TNBAID:    sanitize.String(c.Query("tnbaId")),
-		Gender:    sanitize.OneOf(c.Query("gender"), []string{player.GenderMale, player.GenderFemale}),
-		AgeFilter: sanitize.OneOf(c.Query("ageFilter"), []string{"all", "below-30", "31-40", "41-50", "50+", "above-30"}),
-		Page:      page,
-		Limit:     limit,
+	q := &playersrv.ListQuery{
+		Name:      c.Query("name"),
+		TNBAID:    c.Query("tnbaId"),
+		Gender:    c.Query("gender"),
+		AgeFilter: c.Query("ageFilter"),
+		Page:      c.Query("page"),
+		Limit:     c.Query("limit"),
 	}
 
-	res, err := h.list.List(c.Request.Context(), f)
+	res, err := h.server.List(c.Request.Context(), q)
 	if err != nil {
 		log.Printf("List players error: %v", err)
 		Error(c, http.StatusInternalServerError, "Internal Server Error", "An unexpected error occurred")
 		return
 	}
-	log.Printf("List players page=%d limit=%d total=%d", f.Page, f.Limit, res.Total)
+	log.Printf("List players total=%d", res.Total)
 
 	items := make([]gin.H, len(res.Players))
 	for i, p := range res.Players {
@@ -137,14 +84,13 @@ func (h *PlayerHandler) List(c *gin.Context) {
 // GET /api/v1/players/:id
 func (h *PlayerHandler) Get(c *gin.Context) {
 	id := strings.TrimSpace(c.Param("id"))
-	if id == "" {
-		Error(c, http.StatusBadRequest, "Bad Request", "player ID required")
-		return
-	}
-
-	p, err := h.get.Get(c.Request.Context(), id)
+	p, err := h.server.Get(c.Request.Context(), id)
 	if err != nil {
 		log.Printf("Get player id=%s error: %v", id, err)
+		if playersvc.IsValidationError(err) {
+			Error(c, http.StatusBadRequest, "Validation Error", err.Error())
+			return
+		}
 		Error(c, http.StatusInternalServerError, "Internal Server Error", "An unexpected error occurred")
 		return
 	}
