@@ -66,7 +66,7 @@ func (uc *PlayerService) Create(ctx context.Context, in *CreateInput) (*player.E
 		RecentAchievements: in.RecentAchievements,
 		TshirtSize:         in.TshirtSize,
 		AadharCardImageURL: in.AadharCardImageURL,
-		CreatedAt:          time.Now(),
+		CreatedAt:          time.Now().UnixMilli(),
 	}
 
 	if err := uc.repo.Create(ctx, p); err != nil {

@@ -11,8 +11,8 @@ import (
 
 	"github.com/dreamers-be/internal/domain/player"
 	"github.com/dreamers-be/internal/domain/storage"
-	playersvc "github.com/dreamers-be/internal/service/player"
 	playersrv "github.com/dreamers-be/internal/server/player"
+	playersvc "github.com/dreamers-be/internal/service/player"
 )
 
 // PlayerHandler handles player HTTP endpoints.

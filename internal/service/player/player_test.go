@@ -120,7 +120,7 @@ func TestPlayerService_Create_Success(t *testing.T) {
 	if p.DateOfBirth.Format("2006-01-02") != "1990-05-15" {
 		t.Fatalf("DateOfBirth = %q", p.DateOfBirth.Format("2006-01-02"))
 	}
-	if p.CreatedAt.IsZero() {
+	if p.CreatedAt == 0 {
 		t.Fatalf("CreatedAt should be set")
 	}
 }

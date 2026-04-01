@@ -15,7 +15,7 @@ type Entity struct {
 	RecentAchievements string
 	TshirtSize         string
 	AadharCardImageURL string
-	CreatedAt          time.Time
+	CreatedAt          int64 // unix milliseconds
 }
 
 // Valid genders.

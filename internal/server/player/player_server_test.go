@@ -125,4 +125,3 @@ func TestPlayerServer_Get_EmptyID_ReturnsValidationError(t *testing.T) {
 		t.Fatalf("expected ValidationError, got %T", err)
 	}
 }
-

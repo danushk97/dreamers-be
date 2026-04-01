@@ -44,7 +44,7 @@ func (r *PlayerRepository) GetByID(ctx context.Context, id string) (*player.Enti
 		return nil, err
 	}
 	p.DateOfBirth = dob
-	p.CreatedAt = time.UnixMilli(createdAtMs)
+	p.CreatedAt = createdAtMs
 	if recentAch.Valid {
 		p.RecentAchievements = recentAch.String
 	}
@@ -73,7 +73,7 @@ func (r *PlayerRepository) Create(ctx context.Context, p *player.Entity) error {
 	_, err := r.db.ExecContext(ctx, query,
 		p.ID, p.Name, p.ImageURL, p.Gender, p.DateOfBirth, p.TNBAID,
 		p.District, p.Phone, nullIfEmpty(p.RecentAchievements), p.TshirtSize,
-		p.AadharCardImageURL, p.CreatedAt.UnixMilli(),
+		p.AadharCardImageURL, p.CreatedAt,
 	)
 	return err
 }
@@ -166,7 +166,7 @@ func (r *PlayerRepository) List(ctx context.Context, f *player.ListFilter) (*pla
 			return nil, err
 		}
 		p.DateOfBirth = dob
-		p.CreatedAt = time.UnixMilli(createdAtMs)
+		p.CreatedAt = createdAtMs
 		if recentAch.Valid {
 			p.RecentAchievements = recentAch.String
 		}

@@ -14,9 +14,13 @@ CREATE TABLE IF NOT EXISTS players (
     created_at BIGINT NOT NULL DEFAULT (EXTRACT(EPOCH FROM NOW()) * 1000)::BIGINT
 );
 
-CREATE INDEX idx_players_tnba_id ON players(tnba_id);
-CREATE INDEX idx_players_gender ON players(gender);
-CREATE INDEX idx_players_district ON players(district);
-CREATE INDEX idx_players_date_of_birth ON players(date_of_birth);
-CREATE INDEX idx_players_name_lower ON players(LOWER(name));
-CREATE INDEX idx_players_tnba_id_lower ON players(LOWER(tnba_id));
+CREATE INDEX IF NOT EXISTS idx_players_tnba_id ON players(tnba_id);
+CREATE INDEX IF NOT EXISTS idx_players_gender ON players(gender);
+CREATE INDEX IF NOT EXISTS idx_players_district ON players(district);
+CREATE INDEX IF NOT EXISTS idx_players_date_of_birth ON players(date_of_birth);
+CREATE INDEX IF NOT EXISTS idx_players_name_lower ON players(LOWER(name));
+CREATE INDEX IF NOT EXISTS idx_players_tnba_id_lower ON players(LOWER(tnba_id));
+
+-- +goose Down
+DROP TABLE IF EXISTS players;
+
