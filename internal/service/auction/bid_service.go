@@ -10,24 +10,24 @@ import (
 )
 
 type BidService struct {
-	auctions auction.AuctionRepository
-	lots     auction.AuctionPlayerRepository
-	events   auction.EventRepository
-	teams    auction.TeamRepository
-	bids     auction.BidRepository
-	wallets  auction.WalletRepository
-	nowMs    func() int64
+	auctions         auction.AuctionRepository
+	lots             auction.AuctionPlayerRepository
+	tournamentEvents auction.TournamentEventRepository
+	teams            auction.TeamRepository
+	bids             auction.BidRepository
+	wallets          auction.WalletRepository
+	nowMs            func() int64
 }
 
 func NewBidService(d Deps) *BidService {
 	return &BidService{
-		auctions: d.AuctionRepo,
-		lots:     d.AuctionPlayerRepo,
-		events:   d.EventRepo,
-		teams:    d.TeamRepo,
-		bids:     d.BidRepo,
-		wallets:  d.WalletRepo,
-		nowMs:    d.now(),
+		auctions:         d.AuctionRepo,
+		lots:             d.AuctionPlayerRepo,
+		tournamentEvents: d.TournamentEventRepo,
+		teams:            d.TeamRepo,
+		bids:             d.BidRepo,
+		wallets:          d.WalletRepo,
+		nowMs:            d.now(),
 	}
 }
 
@@ -68,14 +68,14 @@ func (s *BidService) PlaceBid(ctx context.Context, in PlaceBidInput) (*auction.B
 	if a == nil {
 		return nil, &ValidationError{Err: fmt.Errorf("auction not found")}
 	}
-	ev, err := s.events.GetByID(ctx, a.EventID)
+	te, err := s.tournamentEvents.GetByID(ctx, a.TournamentEventID)
 	if err != nil {
-		return nil, fmt.Errorf("get event: %w", err)
+		return nil, fmt.Errorf("get tournament event: %w", err)
 	}
-	if ev == nil || ev.Attrs.TeamEventRules == nil {
-		return nil, &ValidationError{Err: fmt.Errorf("event rules not found")}
+	if te == nil || te.Attrs.TeamEventRules == nil {
+		return nil, &ValidationError{Err: fmt.Errorf("tournament event rules not found")}
 	}
-	rules := ev.Attrs.TeamEventRules
+	rules := te.Attrs.TeamEventRules
 
 	if in.Amount < max64(lot.BasePrice, rules.BaseBid) {
 		return nil, &ValidationError{Err: fmt.Errorf("bid must be >= base bid")}
@@ -91,11 +91,11 @@ func (s *BidService) PlaceBid(ctx context.Context, in PlaceBidInput) (*auction.B
 	if team == nil {
 		return nil, &ValidationError{Err: fmt.Errorf("team not found")}
 	}
-	if team.TournamentID != a.TournamentID || team.EventID != a.EventID {
-		return nil, &ValidationError{Err: fmt.Errorf("team not in this tournament/event")}
+	if team.TournamentID != a.TournamentID || team.TournamentEventID != a.TournamentEventID {
+		return nil, &ValidationError{Err: fmt.Errorf("team not in this tournament event")}
 	}
 
-	w, err := s.wallets.GetByTournamentEventTeam(ctx, a.TournamentID, a.EventID, in.TeamRegistrationID)
+	w, err := s.wallets.GetByTournamentEventTeam(ctx, a.TournamentID, a.TournamentEventID, in.TeamRegistrationID)
 	if err != nil {
 		return nil, fmt.Errorf("get wallet: %w", err)
 	}

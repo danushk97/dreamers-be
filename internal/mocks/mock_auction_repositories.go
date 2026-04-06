@@ -64,56 +64,56 @@ func (mr *MockTournamentRepositoryMockRecorder) GetByID(ctx, id interface{}) *go
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetByID", reflect.TypeOf((*MockTournamentRepository)(nil).GetByID), ctx, id)
 }
 
-// MockEventRepository is a mock of EventRepository interface.
-type MockEventRepository struct {
+// MockTournamentEventRepository is a mock of TournamentEventRepository interface.
+type MockTournamentEventRepository struct {
 	ctrl     *gomock.Controller
-	recorder *MockEventRepositoryMockRecorder
+	recorder *MockTournamentEventRepositoryMockRecorder
 }
 
-// MockEventRepositoryMockRecorder is the mock recorder for MockEventRepository.
-type MockEventRepositoryMockRecorder struct {
-	mock *MockEventRepository
+// MockTournamentEventRepositoryMockRecorder is the mock recorder for MockTournamentEventRepository.
+type MockTournamentEventRepositoryMockRecorder struct {
+	mock *MockTournamentEventRepository
 }
 
-// NewMockEventRepository creates a new mock instance.
-func NewMockEventRepository(ctrl *gomock.Controller) *MockEventRepository {
-	mock := &MockEventRepository{ctrl: ctrl}
-	mock.recorder = &MockEventRepositoryMockRecorder{mock}
+// NewMockTournamentEventRepository creates a new mock instance.
+func NewMockTournamentEventRepository(ctrl *gomock.Controller) *MockTournamentEventRepository {
+	mock := &MockTournamentEventRepository{ctrl: ctrl}
+	mock.recorder = &MockTournamentEventRepositoryMockRecorder{mock}
 	return mock
 }
 
 // EXPECT returns an object that allows the caller to indicate expected use.
-func (m *MockEventRepository) EXPECT() *MockEventRepositoryMockRecorder {
+func (m *MockTournamentEventRepository) EXPECT() *MockTournamentEventRepositoryMockRecorder {
 	return m.recorder
 }
 
 // Create mocks base method.
-func (m *MockEventRepository) Create(ctx context.Context, e *auction.Event) error {
+func (m *MockTournamentEventRepository) Create(ctx context.Context, te *auction.TournamentEvent) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Create", ctx, e)
+	ret := m.ctrl.Call(m, "Create", ctx, te)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // Create indicates an expected call of Create.
-func (mr *MockEventRepositoryMockRecorder) Create(ctx, e interface{}) *gomock.Call {
+func (mr *MockTournamentEventRepositoryMockRecorder) Create(ctx, te interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Create", reflect.TypeOf((*MockEventRepository)(nil).Create), ctx, e)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Create", reflect.TypeOf((*MockTournamentEventRepository)(nil).Create), ctx, te)
 }
 
 // GetByID mocks base method.
-func (m *MockEventRepository) GetByID(ctx context.Context, id string) (*auction.Event, error) {
+func (m *MockTournamentEventRepository) GetByID(ctx context.Context, id string) (*auction.TournamentEvent, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetByID", ctx, id)
-	ret0, _ := ret[0].(*auction.Event)
+	ret0, _ := ret[0].(*auction.TournamentEvent)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // GetByID indicates an expected call of GetByID.
-func (mr *MockEventRepositoryMockRecorder) GetByID(ctx, id interface{}) *gomock.Call {
+func (mr *MockTournamentEventRepositoryMockRecorder) GetByID(ctx, id interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetByID", reflect.TypeOf((*MockEventRepository)(nil).GetByID), ctx, id)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetByID", reflect.TypeOf((*MockTournamentEventRepository)(nil).GetByID), ctx, id)
 }
 
 // MockTeamRepository is a mock of TeamRepository interface.
@@ -166,6 +166,21 @@ func (m *MockTeamRepository) GetByID(ctx context.Context, id string) (*auction.T
 func (mr *MockTeamRepositoryMockRecorder) GetByID(ctx, id interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetByID", reflect.TypeOf((*MockTeamRepository)(nil).GetByID), ctx, id)
+}
+
+// ListByTournamentEvent mocks base method.
+func (m *MockTeamRepository) ListByTournamentEvent(ctx context.Context, tournamentID, tournamentEventID string) ([]*auction.TournamentTeamRegistration, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListByTournamentEvent", ctx, tournamentID, tournamentEventID)
+	ret0, _ := ret[0].([]*auction.TournamentTeamRegistration)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListByTournamentEvent indicates an expected call of ListByTournamentEvent.
+func (mr *MockTeamRepositoryMockRecorder) ListByTournamentEvent(ctx, tournamentID, tournamentEventID interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListByTournamentEvent", reflect.TypeOf((*MockTeamRepository)(nil).ListByTournamentEvent), ctx, tournamentID, tournamentEventID)
 }
 
 // MockRegistrationRepository is a mock of RegistrationRepository interface.
@@ -221,18 +236,18 @@ func (mr *MockRegistrationRepositoryMockRecorder) GetByID(ctx, id interface{}) *
 }
 
 // ListEligible mocks base method.
-func (m *MockRegistrationRepository) ListEligible(ctx context.Context, tournamentID, eventID string, f auction.RegistrationFilter) ([]*auction.TournamentPlayerRegistration, error) {
+func (m *MockRegistrationRepository) ListEligible(ctx context.Context, tournamentID, tournamentEventID string, f auction.RegistrationFilter) ([]*auction.TournamentPlayerRegistration, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ListEligible", ctx, tournamentID, eventID, f)
+	ret := m.ctrl.Call(m, "ListEligible", ctx, tournamentID, tournamentEventID, f)
 	ret0, _ := ret[0].([]*auction.TournamentPlayerRegistration)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // ListEligible indicates an expected call of ListEligible.
-func (mr *MockRegistrationRepositoryMockRecorder) ListEligible(ctx, tournamentID, eventID, f interface{}) *gomock.Call {
+func (mr *MockRegistrationRepositoryMockRecorder) ListEligible(ctx, tournamentID, tournamentEventID, f interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListEligible", reflect.TypeOf((*MockRegistrationRepository)(nil).ListEligible), ctx, tournamentID, eventID, f)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListEligible", reflect.TypeOf((*MockRegistrationRepository)(nil).ListEligible), ctx, tournamentID, tournamentEventID, f)
 }
 
 // UnassignTeam mocks base method.
@@ -301,6 +316,20 @@ func (mr *MockAuctionRepositoryMockRecorder) GetByID(ctx, id interface{}) *gomoc
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetByID", reflect.TypeOf((*MockAuctionRepository)(nil).GetByID), ctx, id)
 }
 
+// UpdateRunMode mocks base method.
+func (m *MockAuctionRepository) UpdateRunMode(ctx context.Context, auctionID string, runMode auction.AuctionRunMode) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateRunMode", ctx, auctionID, runMode)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpdateRunMode indicates an expected call of UpdateRunMode.
+func (mr *MockAuctionRepositoryMockRecorder) UpdateRunMode(ctx, auctionID, runMode interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateRunMode", reflect.TypeOf((*MockAuctionRepository)(nil).UpdateRunMode), ctx, auctionID, runMode)
+}
+
 // MockAuctionPlayerRepository is a mock of AuctionPlayerRepository interface.
 type MockAuctionPlayerRepository struct {
 	ctrl     *gomock.Controller
@@ -367,6 +396,21 @@ func (mr *MockAuctionPlayerRepositoryMockRecorder) GetByID(ctx, id interface{}) 
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetByID", reflect.TypeOf((*MockAuctionPlayerRepository)(nil).GetByID), ctx, id)
 }
 
+// GetByAuctionAndRegistrationSerial mocks base method.
+func (m *MockAuctionPlayerRepository) GetByAuctionAndRegistrationSerial(ctx context.Context, auctionID string, serialNumber int) (*auction.AuctionPlayer, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetByAuctionAndRegistrationSerial", ctx, auctionID, serialNumber)
+	ret0, _ := ret[0].(*auction.AuctionPlayer)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetByAuctionAndRegistrationSerial indicates an expected call of GetByAuctionAndRegistrationSerial.
+func (mr *MockAuctionPlayerRepositoryMockRecorder) GetByAuctionAndRegistrationSerial(ctx, auctionID, serialNumber interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetByAuctionAndRegistrationSerial", reflect.TypeOf((*MockAuctionPlayerRepository)(nil).GetByAuctionAndRegistrationSerial), ctx, auctionID, serialNumber)
+}
+
 // ListByAuction mocks base method.
 func (m *MockAuctionPlayerRepository) ListByAuction(ctx context.Context, auctionID string) ([]*auction.AuctionPlayer, error) {
 	m.ctrl.T.Helper()
@@ -408,6 +452,20 @@ func (m *MockAuctionPlayerRepository) UpdateStatus(ctx context.Context, id strin
 func (mr *MockAuctionPlayerRepositoryMockRecorder) UpdateStatus(ctx, id, status, isActive interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateStatus", reflect.TypeOf((*MockAuctionPlayerRepository)(nil).UpdateStatus), ctx, id, status, isActive)
+}
+
+// ResetAllLotsToPending mocks base method.
+func (m *MockAuctionPlayerRepository) ResetAllLotsToPending(ctx context.Context, auctionID string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ResetAllLotsToPending", ctx, auctionID)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// ResetAllLotsToPending indicates an expected call of ResetAllLotsToPending.
+func (mr *MockAuctionPlayerRepositoryMockRecorder) ResetAllLotsToPending(ctx, auctionID interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ResetAllLotsToPending", reflect.TypeOf((*MockAuctionPlayerRepository)(nil).ResetAllLotsToPending), ctx, auctionID)
 }
 
 // MockBidRepository is a mock of BidRepository interface.
@@ -477,6 +535,20 @@ func (mr *MockBidRepositoryMockRecorder) ListByAuctionPlayer(ctx, auctionPlayerI
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListByAuctionPlayer", reflect.TypeOf((*MockBidRepository)(nil).ListByAuctionPlayer), ctx, auctionPlayerID)
 }
 
+// DeleteByAuction mocks base method.
+func (m *MockBidRepository) DeleteByAuction(ctx context.Context, auctionID string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteByAuction", ctx, auctionID)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeleteByAuction indicates an expected call of DeleteByAuction.
+func (mr *MockBidRepositoryMockRecorder) DeleteByAuction(ctx, auctionID interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteByAuction", reflect.TypeOf((*MockBidRepository)(nil).DeleteByAuction), ctx, auctionID)
+}
+
 // MockWalletRepository is a mock of WalletRepository interface.
 type MockWalletRepository struct {
 	ctrl     *gomock.Controller
@@ -515,18 +587,18 @@ func (mr *MockWalletRepositoryMockRecorder) CreateTransaction(ctx, tx interface{
 }
 
 // GetByTournamentEventTeam mocks base method.
-func (m *MockWalletRepository) GetByTournamentEventTeam(ctx context.Context, tournamentID, eventID, teamRegistrationID string) (*auction.Wallet, error) {
+func (m *MockWalletRepository) GetByTournamentEventTeam(ctx context.Context, tournamentID, tournamentEventID, teamRegistrationID string) (*auction.Wallet, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetByTournamentEventTeam", ctx, tournamentID, eventID, teamRegistrationID)
+	ret := m.ctrl.Call(m, "GetByTournamentEventTeam", ctx, tournamentID, tournamentEventID, teamRegistrationID)
 	ret0, _ := ret[0].(*auction.Wallet)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // GetByTournamentEventTeam indicates an expected call of GetByTournamentEventTeam.
-func (mr *MockWalletRepositoryMockRecorder) GetByTournamentEventTeam(ctx, tournamentID, eventID, teamRegistrationID interface{}) *gomock.Call {
+func (mr *MockWalletRepositoryMockRecorder) GetByTournamentEventTeam(ctx, tournamentID, tournamentEventID, teamRegistrationID interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetByTournamentEventTeam", reflect.TypeOf((*MockWalletRepository)(nil).GetByTournamentEventTeam), ctx, tournamentID, eventID, teamRegistrationID)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetByTournamentEventTeam", reflect.TypeOf((*MockWalletRepository)(nil).GetByTournamentEventTeam), ctx, tournamentID, tournamentEventID, teamRegistrationID)
 }
 
 // UpdateBalance mocks base method.

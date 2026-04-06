@@ -7,10 +7,17 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/dreamers-be/internal/domain/player"
 )
 
 var _ player.Repository = (*PlayerRepository)(nil)
+
+const (
+	defaultTournamentID      = "a0000001-0000-4000-8000-000000000001"
+	defaultTournamentEventID = "a0000002-0000-4000-8000-000000000001"
+)
 
 // PlayerRepository implements player.Repository with PostgreSQL.
 type PlayerRepository struct {
@@ -66,16 +73,61 @@ func (r *PlayerRepository) ExistsByTNBAID(ctx context.Context, tnbaID string) (b
 
 // Create inserts a player.
 func (r *PlayerRepository) Create(ctx context.Context, p *player.Entity) error {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	rollback := func(e error) error {
+		_ = tx.Rollback()
+		return e
+	}
+
 	query := `INSERT INTO players (
 		id, name, image_url, gender, date_of_birth, tnba_id, district,
 		phone, recent_achievements, tshirt_size, aadhar_card_image_url, created_at
 	) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`
-	_, err := r.db.ExecContext(ctx, query,
+	if _, err := tx.ExecContext(ctx, query,
 		p.ID, p.Name, p.ImageURL, p.Gender, p.DateOfBirth, p.TNBAID,
 		p.District, p.Phone, nullIfEmpty(p.RecentAchievements), p.TshirtSize,
 		p.AadharCardImageURL, p.CreatedAt,
-	)
-	return err
+	); err != nil {
+		return rollback(err)
+	}
+
+	// MVP behavior: auto-register every created player to the default tournament/event.
+	// We also make it idempotent by checking existence first.
+	var alreadyRegistered bool
+	if err := tx.QueryRowContext(
+		ctx,
+		`SELECT EXISTS (
+			SELECT 1 FROM tournament_player_registrations
+			WHERE tournament_id = $1 AND tournament_event_id = $2 AND player_id = $3
+		)`,
+		defaultTournamentID,
+		defaultTournamentEventID,
+		p.ID,
+	).Scan(&alreadyRegistered); err != nil {
+		return rollback(err)
+	}
+
+	if !alreadyRegistered {
+		if _, err := tx.ExecContext(
+			ctx,
+			`INSERT INTO tournament_player_registrations (
+				id, tournament_id, tournament_event_id, player_id, team_id, created_at
+			) VALUES ($1, $2, $3, $4, $5, $6)`,
+			uuid.New().String(),
+			defaultTournamentID,
+			defaultTournamentEventID,
+			p.ID,
+			nil, // team_id initially NULL
+			p.CreatedAt,
+		); err != nil {
+			return rollback(err)
+		}
+	}
+
+	return tx.Commit()
 }
 
 // List returns players matching the filter with pagination.

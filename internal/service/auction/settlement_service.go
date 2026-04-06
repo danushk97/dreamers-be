@@ -70,7 +70,7 @@ func (s *SettlementService) SellCurrentLot(ctx context.Context, in SellInput) er
 		return &ValidationError{Err: fmt.Errorf("highest bid changed")}
 	}
 
-	w, err := s.wallets.GetByTournamentEventTeam(ctx, a.TournamentID, a.EventID, highest.TeamRegistrationID)
+	w, err := s.wallets.GetByTournamentEventTeam(ctx, a.TournamentID, a.TournamentEventID, highest.TeamRegistrationID)
 	if err != nil {
 		return fmt.Errorf("get wallet: %w", err)
 	}
@@ -106,7 +106,8 @@ func (s *SettlementService) SellCurrentLot(ctx context.Context, in SellInput) er
 	return nil
 }
 
-// MarkUnsold moves a lot to unsold state (no wallet movement).
+// MarkUnsold moves an open lot to unsold (no wallet movement). If the lot is already sold,
+// it performs the same reversal as RevertSale (credit wallet, unassign player, clear sale).
 func (s *SettlementService) MarkUnsold(ctx context.Context, auctionPlayerID string) error {
 	if auctionPlayerID == "" {
 		return &ValidationError{Err: fmt.Errorf("auction_player_id is required")}
@@ -119,7 +120,7 @@ func (s *SettlementService) MarkUnsold(ctx context.Context, auctionPlayerID stri
 		return &ValidationError{Err: fmt.Errorf("lot not found")}
 	}
 	if lot.Status == auction.AuctionPlayerSold {
-		return &ValidationError{Err: fmt.Errorf("cannot mark sold lot as unsold")}
+		return s.RevertSale(ctx, auctionPlayerID, "")
 	}
 	return s.lots.UpdateStatus(ctx, auctionPlayerID, auction.AuctionPlayerUnsold, false)
 }
@@ -150,7 +151,7 @@ func (s *SettlementService) RevertSale(ctx context.Context, auctionPlayerID stri
 	if a == nil {
 		return &ValidationError{Err: fmt.Errorf("auction not found")}
 	}
-	w, err := s.wallets.GetByTournamentEventTeam(ctx, a.TournamentID, a.EventID, lot.SoldToTeamRegistrationID)
+	w, err := s.wallets.GetByTournamentEventTeam(ctx, a.TournamentID, a.TournamentEventID, lot.SoldToTeamRegistrationID)
 	if err != nil {
 		return fmt.Errorf("get wallet: %w", err)
 	}
@@ -181,6 +182,46 @@ func (s *SettlementService) RevertSale(ctx context.Context, auctionPlayerID stri
 		return fmt.Errorf("update wallet balance: %w", err)
 	}
 	_ = reason // reserved for audit later
+	return nil
+}
+
+// ResetTestAuction reverts all sold lots (wallet credit, unassign), removes all bids, and sets every
+// lot back to pending. Only allowed when the auction run mode is test.
+func (s *SettlementService) ResetTestAuction(ctx context.Context, auctionID string) error {
+	if auctionID == "" {
+		return &ValidationError{Err: fmt.Errorf("auction_id is required")}
+	}
+	a, err := s.auctions.GetByID(ctx, auctionID)
+	if err != nil {
+		return fmt.Errorf("get auction: %w", err)
+	}
+	if a == nil {
+		return &ValidationError{Err: fmt.Errorf("auction not found")}
+	}
+	if a.RunMode != auction.AuctionRunModeTest {
+		return &ValidationError{Err: fmt.Errorf("reset is only allowed when auction runMode is test")}
+	}
+
+	lots, err := s.lots.ListByAuction(ctx, auctionID)
+	if err != nil {
+		return fmt.Errorf("list lots: %w", err)
+	}
+	for _, lot := range lots {
+		if lot == nil {
+			continue
+		}
+		if lot.Status == auction.AuctionPlayerSold {
+			if err := s.RevertSale(ctx, lot.ID, "test reset"); err != nil {
+				return err
+			}
+		}
+	}
+	if err := s.bids.DeleteByAuction(ctx, auctionID); err != nil {
+		return fmt.Errorf("delete bids: %w", err)
+	}
+	if err := s.lots.ResetAllLotsToPending(ctx, auctionID); err != nil {
+		return fmt.Errorf("reset lots: %w", err)
+	}
 	return nil
 }
 

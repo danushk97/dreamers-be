@@ -1,0 +1,672 @@
+package gin
+
+import (
+	"fmt"
+	"net/http"
+	"strconv"
+	"strings"
+
+	"github.com/gin-gonic/gin"
+
+	"github.com/dreamers-be/internal/domain/auction"
+	auctionservice "github.com/dreamers-be/internal/service/auction"
+)
+
+type AuctionHandler struct {
+	auctionSvc     *auctionservice.AuctionService
+	lotSvc         *auctionservice.LotService
+	bidSvc         *auctionservice.BidService
+	settlementSvc  *auctionservice.SettlementService
+
+	auctionPlayerRepo auction.AuctionPlayerRepository
+	bidRepo           auction.BidRepository
+	walletRepo       auction.WalletRepository
+}
+
+func NewAuctionHandler(
+	auctionSvc *auctionservice.AuctionService,
+	lotSvc *auctionservice.LotService,
+	bidSvc *auctionservice.BidService,
+	settlementSvc *auctionservice.SettlementService,
+	auctionPlayerRepo auction.AuctionPlayerRepository,
+	bidRepo auction.BidRepository,
+	walletRepo auction.WalletRepository,
+) *AuctionHandler {
+	return &AuctionHandler{
+		auctionSvc:         auctionSvc,
+		lotSvc:             lotSvc,
+		bidSvc:             bidSvc,
+		settlementSvc:      settlementSvc,
+		auctionPlayerRepo: auctionPlayerRepo,
+		bidRepo:           bidRepo,
+		walletRepo:       walletRepo,
+	}
+}
+
+// --- Request DTOs ---
+
+type RegistrationFilterRequest struct {
+	MinAgeYears int    `json:"minAgeYears"`
+	MaxAgeYears int    `json:"maxAgeYears"`
+	Gender      string `json:"gender"`
+}
+
+func (r RegistrationFilterRequest) toDomain() auction.RegistrationFilter {
+	return auction.RegistrationFilter{
+		MinAgeYears: r.MinAgeYears,
+		MaxAgeYears: r.MaxAgeYears,
+		Gender:      r.Gender,
+	}
+}
+
+type FilterPresetRequest struct {
+	ID    string                   `json:"id"`
+	Name  string                   `json:"name"`
+	Filter RegistrationFilterRequest `json:"filter"`
+}
+
+func (r FilterPresetRequest) toDomain(nowMs int64) auction.FilterPreset {
+	return auction.FilterPreset{
+		ID:        r.ID,
+		Name:      r.Name,
+		Filter:    r.Filter.toDomain(),
+		CreatedAt: nowMs,
+	}
+}
+
+type CreateAuctionRequest struct {
+	TournamentID      string                `json:"tournamentId"`
+	TournamentEventID string                `json:"tournamentEventId"`
+	Mode              string                `json:"mode"`
+	// RunMode is "test" (default, allows POST .../reset) or "live".
+	RunMode           string                `json:"runMode"`
+	FilterPresets     []FilterPresetRequest `json:"filterPresets"`
+}
+
+type ListEligibleRequest struct {
+	// PresetID: optional — use a saved filter from the auction (from filterPresets).
+	// If set, it overrides the inline filter body for this request.
+	PresetID string `json:"presetId"`
+	Filter   RegistrationFilterRequest `json:"filter"`
+}
+
+type CreateLotsBulkRequest struct {
+	// Optional: if provided, server will create lots for exactly these registrations.
+	RegistrationIDs []string `json:"registrationIds"`
+
+	// When RegistrationIDs is empty, server will query eligible registrations
+	// for (tournamentId, tournamentEventId) and create lots automatically.
+	TournamentID      string                   `json:"tournamentId"`
+	TournamentEventID string                   `json:"tournamentEventId"`
+	// PresetID: optional — same semantics as POST .../eligible (saved category on auction).
+	PresetID string                   `json:"presetId"`
+	Filter   RegistrationFilterRequest `json:"filter"`
+
+	StartLotNumber int   `json:"startLotNumber"`
+	BasePrice      int64 `json:"basePrice"` // 0 = use event base bid
+	Limit           int   `json:"limit"`     // 0 = no limit
+}
+
+type PlaceBidRequest struct {
+	TeamRegistrationID string `json:"teamRegistrationId"`
+	Amount             int64  `json:"amount"`
+}
+
+type SellRequest struct {
+	ExpectedBidID string `json:"expectedBidId"`
+}
+
+type RevertSaleRequest struct {
+	Reason string `json:"reason"`
+}
+
+// --- Response DTOs ---
+
+type AuctionResponse struct {
+	ID                string                   `json:"id"`
+	TournamentID      string                   `json:"tournamentId"`
+	TournamentEventID string                   `json:"tournamentEventId"`
+	Mode              auction.AuctionMode     `json:"mode"`
+	FilterPresets    []auction.FilterPreset  `json:"filterPresets"`
+	CreatedAt         int64                    `json:"createdAt"`
+}
+
+type AuctionPlayerResponse struct {
+	ID                             string `json:"id"`
+	AuctionID                      string `json:"auctionId"`
+	TournamentPlayerRegistrationID string `json:"tournamentPlayerRegistrationId"`
+	Status                           auction.AuctionPlayerStatus `json:"status"`
+	BasePrice                        int64  `json:"basePrice"`
+	FinalPrice                       int64  `json:"finalPrice"`
+	SoldToTeamRegistrationID         string `json:"soldToTeamRegistrationId"`
+	LotNumber                        int    `json:"lotNumber"`
+	IsActive                         bool   `json:"isActive"`
+	CreatedAt                        int64  `json:"createdAt"`
+}
+
+func toAuctionPlayerResponse(ap *auction.AuctionPlayer) AuctionPlayerResponse {
+	if ap == nil {
+		return AuctionPlayerResponse{}
+	}
+	return AuctionPlayerResponse{
+		ID:                             ap.ID,
+		AuctionID:                      ap.AuctionID,
+		TournamentPlayerRegistrationID: ap.TournamentPlayerRegistrationID,
+		Status:                         ap.Status,
+		BasePrice:                      ap.BasePrice,
+		FinalPrice:                     ap.FinalPrice,
+		SoldToTeamRegistrationID:       ap.SoldToTeamRegistrationID,
+		LotNumber:                      ap.LotNumber,
+		IsActive:                       ap.IsActive,
+		CreatedAt:                      ap.CreatedAt,
+	}
+}
+
+type BidResponse struct {
+	ID                 string                 `json:"id"`
+	AuctionPlayerID   string                 `json:"auctionPlayerId"`
+	TeamRegistrationID string                `json:"teamRegistrationId"`
+	Amount            int64                  `json:"amount"`
+	RecordedAt        int64                  `json:"recordedAt"`
+}
+
+func toBidResponse(b *auction.Bid) BidResponse {
+	if b == nil {
+		return BidResponse{}
+	}
+	return BidResponse{
+		ID:                 b.ID,
+		AuctionPlayerID:   b.AuctionPlayerID,
+		TeamRegistrationID: b.TeamRegistrationID,
+		Amount:             b.Amount,
+		RecordedAt:         b.RecordedAt,
+	}
+}
+
+type TournamentPlayerRegistrationResponse struct {
+	ID                string `json:"id"`
+	TournamentID      string `json:"tournamentId"`
+	TournamentEventID string `json:"tournamentEventId"`
+	PlayerID         string `json:"playerId"`
+	TeamID           string `json:"teamId"`
+	SerialNumber      int    `json:"serialNumber"`
+	CreatedAt         int64  `json:"createdAt"`
+}
+
+type TournamentTeamRegistrationResponse struct {
+	ID                string `json:"id"`
+	TournamentID      string `json:"tournamentId"`
+	TournamentEventID string `json:"tournamentEventId"`
+	TeamName          string `json:"teamName"`
+	TeamLogoURL       string `json:"teamLogoUrl"`
+	CreatedAt         int64  `json:"createdAt"`
+}
+
+type WalletResponse struct {
+	ID                string `json:"id"`
+	TournamentID      string `json:"tournamentId"`
+	TournamentEventID string `json:"tournamentEventId"`
+	TeamID           string `json:"teamId"`
+	Balance          int64  `json:"balance"`
+	CreatedAt        int64  `json:"createdAt"`
+	UpdatedAt        int64  `json:"updatedAt"`
+}
+
+func toWalletResponse(w *auction.Wallet) WalletResponse {
+	if w == nil {
+		return WalletResponse{}
+	}
+	return WalletResponse{
+		ID: w.ID, TournamentID: w.TournamentID, TournamentEventID: w.TournamentEventID, TeamID: w.TeamID,
+		Balance: w.Balance, CreatedAt: w.CreatedAt, UpdatedAt: w.UpdatedAt,
+	}
+}
+
+// --- Handlers ---
+
+// resolveRegistrationFilter applies stateless category selection:
+// - If presetId is set, load the auction and use the matching saved FilterPreset.Filter.
+// - Otherwise use the inline filter from the request body.
+func (h *AuctionHandler) resolveRegistrationFilter(c *gin.Context, auctionID string, presetID string, body RegistrationFilterRequest) (auction.RegistrationFilter, error) {
+	if strings.TrimSpace(presetID) != "" {
+		auc, err := h.auctionSvc.GetAuction(c.Request.Context(), auctionID)
+		if err != nil {
+			return auction.RegistrationFilter{}, err
+		}
+		f, ok := auc.FilterForPreset(presetID)
+		if !ok {
+			return auction.RegistrationFilter{}, &auctionservice.ValidationError{Err: fmt.Errorf("filter preset not found: %s", presetID)}
+		}
+		return f, nil
+	}
+	return body.toDomain(), nil
+}
+
+// GET /v1/auctions/:auctionId — load auction including filterPresets (stateless category definitions).
+func (h *AuctionHandler) GetAuction(c *gin.Context) {
+	id := strings.TrimSpace(c.Param("auctionId"))
+	auc, err := h.auctionSvc.GetAuction(c.Request.Context(), id)
+	if err != nil {
+		if auctionservice.IsValidationError(err) {
+			if strings.Contains(err.Error(), "auction not found") {
+				Error(c, http.StatusNotFound, "Not Found", err.Error())
+				return
+			}
+			Error(c, http.StatusBadRequest, "Validation Error", err.Error())
+			return
+		}
+		Error(c, http.StatusInternalServerError, "Internal Server Error", err.Error())
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"auction": auc})
+}
+
+// PATCH /v1/auctions/:auctionId — body: { "runMode": "test" | "live" }
+func (h *AuctionHandler) PatchAuction(c *gin.Context) {
+	auctionID := strings.TrimSpace(c.Param("auctionId"))
+	var req struct {
+		RunMode string `json:"runMode"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		Error(c, http.StatusBadRequest, "Bad Request", "invalid request body")
+		return
+	}
+	if strings.TrimSpace(req.RunMode) == "" {
+		Error(c, http.StatusBadRequest, "Validation Error", "runMode is required")
+		return
+	}
+	auc, err := h.auctionSvc.UpdateAuctionRunMode(c.Request.Context(), auctionID, auction.AuctionRunMode(strings.TrimSpace(req.RunMode)))
+	if err != nil {
+		if auctionservice.IsValidationError(err) {
+			if strings.Contains(err.Error(), "auction not found") {
+				Error(c, http.StatusNotFound, "Not Found", err.Error())
+				return
+			}
+			Error(c, http.StatusBadRequest, "Validation Error", err.Error())
+			return
+		}
+		Error(c, http.StatusInternalServerError, "Internal Server Error", err.Error())
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"auction": auc})
+}
+
+// GET /v1/tournaments/:tournamentId/events/:tournamentEventId/teams
+func (h *AuctionHandler) ListRegisteredTeams(c *gin.Context) {
+	tournamentID := strings.TrimSpace(c.Param("tournamentId"))
+	tournamentEventID := strings.TrimSpace(c.Param("tournamentEventId"))
+	teams, err := h.auctionSvc.ListRegisteredTeams(c.Request.Context(), tournamentID, tournamentEventID)
+	if err != nil {
+		if auctionservice.IsValidationError(err) {
+			if strings.Contains(err.Error(), "tournament event not found") {
+				Error(c, http.StatusNotFound, "Not Found", err.Error())
+				return
+			}
+			Error(c, http.StatusBadRequest, "Validation Error", err.Error())
+			return
+		}
+		Error(c, http.StatusInternalServerError, "Internal Server Error", err.Error())
+		return
+	}
+	items := make([]TournamentTeamRegistrationResponse, 0, len(teams))
+	for _, t := range teams {
+		if t == nil {
+			continue
+		}
+		items = append(items, TournamentTeamRegistrationResponse{
+			ID: t.ID, TournamentID: t.TournamentID, TournamentEventID: t.TournamentEventID,
+			TeamName: t.TeamName, TeamLogoURL: t.TeamLogoURL, CreatedAt: t.CreatedAt,
+		})
+	}
+	c.JSON(http.StatusOK, gin.H{"teams": items})
+}
+
+// POST /api/v1/auctions
+func (h *AuctionHandler) CreateAuction(c *gin.Context) {
+	var req CreateAuctionRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		Error(c, http.StatusBadRequest, "Bad Request", "invalid request body")
+		return
+	}
+	mode := auction.AuctionMode(req.Mode)
+	if req.Mode == "" {
+		mode = auction.AuctionModeOpen
+	}
+	runMode := auction.AuctionRunMode(req.RunMode)
+	if req.RunMode == "" {
+		runMode = auction.AuctionRunModeTest
+	}
+
+	// CreateAuction service expects filter presets already including CreatedAt (DB stored as JSONB).
+	// For MVP, we just set CreatedAt = 0 here; repositories persist what services return.
+	filterPresets := make([]auction.FilterPreset, 0, len(req.FilterPresets))
+	for _, p := range req.FilterPresets {
+		filterPresets = append(filterPresets, auction.FilterPreset{
+			ID:        p.ID,
+			Name:      p.Name,
+			Filter:    p.Filter.toDomain(),
+			CreatedAt: 0,
+		})
+	}
+
+	auc, err := h.auctionSvc.CreateAuction(c.Request.Context(), req.TournamentID, req.TournamentEventID, mode, runMode, filterPresets)
+	if err != nil {
+		if auctionservice.IsValidationError(err) {
+			Error(c, http.StatusBadRequest, "Validation Error", err.Error())
+			return
+		}
+		Error(c, http.StatusInternalServerError, "Internal Server Error", err.Error())
+		return
+	}
+	c.JSON(http.StatusCreated, gin.H{"auction": gin.H{
+		"id":                auc.ID,
+		"tournamentId":      auc.TournamentID,
+		"tournamentEventId": auc.TournamentEventID,
+		"mode":              auc.Mode,
+		"runMode":           auc.RunMode,
+		"filterPresets":    auc.FilterPresets,
+		"createdAt":         auc.CreatedAt,
+	}})
+}
+
+// POST /v1/auctions/:auctionId/reset — test auctions only: revert sales, clear bids, all lots pending.
+func (h *AuctionHandler) ResetTestAuction(c *gin.Context) {
+	auctionID := strings.TrimSpace(c.Param("auctionId"))
+	err := h.settlementSvc.ResetTestAuction(c.Request.Context(), auctionID)
+	if err != nil {
+		if auctionservice.IsValidationError(err) {
+			if strings.Contains(err.Error(), "auction not found") {
+				Error(c, http.StatusNotFound, "Not Found", err.Error())
+				return
+			}
+			if strings.Contains(err.Error(), "only allowed when auction runMode is test") {
+				Error(c, http.StatusForbidden, "Forbidden", err.Error())
+				return
+			}
+			Error(c, http.StatusBadRequest, "Validation Error", err.Error())
+			return
+		}
+		Error(c, http.StatusInternalServerError, "Internal Server Error", err.Error())
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"ok": true})
+}
+
+// POST /api/v1/auctions/:auctionId/eligible
+func (h *AuctionHandler) ListEligibleRegistrations(c *gin.Context) {
+	auctionID := c.Param("auctionId")
+	var req ListEligibleRequest
+	// body optional: empty filter means no filter
+	if err := c.ShouldBindJSON(&req); err != nil {
+		req = ListEligibleRequest{Filter: RegistrationFilterRequest{}}
+	}
+
+	filter, err := h.resolveRegistrationFilter(c, auctionID, req.PresetID, req.Filter)
+	if err != nil {
+		if auctionservice.IsValidationError(err) {
+			Error(c, http.StatusBadRequest, "Validation Error", err.Error())
+			return
+		}
+		Error(c, http.StatusInternalServerError, "Internal Server Error", err.Error())
+		return
+	}
+
+	regs, err := h.lotSvc.ListEligibleRegistrations(c.Request.Context(), auctionID, filter)
+	if err != nil {
+		if auctionservice.IsValidationError(err) {
+			Error(c, http.StatusBadRequest, "Validation Error", err.Error())
+			return
+		}
+		Error(c, http.StatusInternalServerError, "Internal Server Error", err.Error())
+		return
+	}
+	items := make([]TournamentPlayerRegistrationResponse, 0, len(regs))
+	for _, r := range regs {
+		if r == nil {
+			continue
+		}
+		items = append(items, toTournamentPlayerRegistrationResponse(r))
+	}
+	c.JSON(http.StatusOK, gin.H{"registrations": items})
+}
+
+// POST /api/v1/auctions/:auctionId/lots/bulk
+func (h *AuctionHandler) CreateLotsBulk(c *gin.Context) {
+	auctionID := c.Param("auctionId")
+	var req CreateLotsBulkRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		Error(c, http.StatusBadRequest, "Bad Request", "invalid request body")
+		return
+	}
+	var lots []*auction.AuctionPlayer
+	var err error
+	if len(req.RegistrationIDs) > 0 {
+		// Backward-compatible path: client provides explicit registration IDs.
+		lots, err = h.lotSvc.CreateLotsBulk(c.Request.Context(), auctionservice.CreateLotsBulkInput{
+			AuctionID:        auctionID,
+			RegistrationIDs: req.RegistrationIDs,
+			StartLotNumber:  req.StartLotNumber,
+			BasePrice:        req.BasePrice,
+		})
+	} else {
+		filter, rerr := h.resolveRegistrationFilter(c, auctionID, req.PresetID, req.Filter)
+		if rerr != nil {
+			if auctionservice.IsValidationError(rerr) {
+				Error(c, http.StatusBadRequest, "Validation Error", rerr.Error())
+				return
+			}
+			Error(c, http.StatusInternalServerError, "Internal Server Error", rerr.Error())
+			return
+		}
+		// MVP path: create lots by server-side lookup of eligible registrations.
+		lots, err = h.lotSvc.CreateLotsByQuery(c.Request.Context(), auctionservice.CreateLotsByQueryInput{
+			AuctionID:          auctionID,
+			TournamentID:      req.TournamentID,
+			TournamentEventID: req.TournamentEventID,
+			Filter:            filter,
+			StartLotNumber:    req.StartLotNumber,
+			BasePrice:         req.BasePrice,
+			Limit:              req.Limit,
+		})
+	}
+	if err != nil {
+		if auctionservice.IsValidationError(err) {
+			Error(c, http.StatusBadRequest, "Validation Error", err.Error())
+			return
+		}
+		Error(c, http.StatusInternalServerError, "Internal Server Error", err.Error())
+		return
+	}
+	resp := make([]AuctionPlayerResponse, 0, len(lots))
+	for _, ap := range lots {
+		resp = append(resp, toAuctionPlayerResponse(ap))
+	}
+	c.JSON(http.StatusCreated, gin.H{"lots": resp})
+}
+
+// GET /api/v1/auctions/:auctionId/lots
+func (h *AuctionHandler) ListLotsByAuction(c *gin.Context) {
+	auctionID := c.Param("auctionId")
+	lots, err := h.auctionPlayerRepo.ListByAuction(c.Request.Context(), auctionID)
+	if err != nil {
+		Error(c, http.StatusInternalServerError, "Internal Server Error", err.Error())
+		return
+	}
+	resp := make([]AuctionPlayerResponse, 0, len(lots))
+	for _, ap := range lots {
+		resp = append(resp, toAuctionPlayerResponse(ap))
+	}
+	c.JSON(http.StatusOK, gin.H{"lots": resp})
+}
+
+// GET /v1/auctions/:auctionId/lots/by-registration-serial/:serialNumber
+// Returns the lot for that auction + registration serial (any status: sold, unsold, active, etc.).
+func (h *AuctionHandler) GetLotByRegistrationSerial(c *gin.Context) {
+	auctionID := strings.TrimSpace(c.Param("auctionId"))
+	serialStr := strings.TrimSpace(c.Param("serialNumber"))
+	serial, err := strconv.Atoi(serialStr)
+	if err != nil || serial < 1 {
+		Error(c, http.StatusBadRequest, "Validation Error", "serialNumber must be a positive integer")
+		return
+	}
+	ap, reg, err := h.lotSvc.GetLotByRegistrationSerial(c.Request.Context(), auctionID, serial)
+	if err != nil {
+		if auctionservice.IsValidationError(err) {
+			if strings.Contains(err.Error(), "auction not found") {
+				Error(c, http.StatusNotFound, "Not Found", err.Error())
+				return
+			}
+			if strings.Contains(err.Error(), "no lot for") {
+				Error(c, http.StatusNotFound, "Not Found", err.Error())
+				return
+			}
+			Error(c, http.StatusBadRequest, "Validation Error", err.Error())
+			return
+		}
+		Error(c, http.StatusInternalServerError, "Internal Server Error", err.Error())
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"lot":            toAuctionPlayerResponse(ap),
+		"serialNumber":   reg.SerialNumber,
+		"playerId":       reg.PlayerID,
+		"registration":   toTournamentPlayerRegistrationResponse(reg),
+	})
+}
+
+func toTournamentPlayerRegistrationResponse(r *auction.TournamentPlayerRegistration) TournamentPlayerRegistrationResponse {
+	if r == nil {
+		return TournamentPlayerRegistrationResponse{}
+	}
+	return TournamentPlayerRegistrationResponse{
+		ID: r.ID, TournamentID: r.TournamentID, TournamentEventID: r.TournamentEventID,
+		PlayerID: r.PlayerID, TeamID: r.TeamID, SerialNumber: r.SerialNumber, CreatedAt: r.CreatedAt,
+	}
+}
+
+// POST /api/v1/auction-players/:auctionPlayerId/bids
+func (h *AuctionHandler) PlaceBid(c *gin.Context) {
+	auctionPlayerID := c.Param("auctionPlayerId")
+	var req PlaceBidRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		Error(c, http.StatusBadRequest, "Bad Request", "invalid request body")
+		return
+	}
+	bid, err := h.bidSvc.PlaceBid(c.Request.Context(), auctionservice.PlaceBidInput{
+		AuctionPlayerID:    auctionPlayerID,
+		TeamRegistrationID: req.TeamRegistrationID,
+		Amount:             req.Amount,
+	})
+	if err != nil {
+		if auctionservice.IsValidationError(err) {
+			Error(c, http.StatusBadRequest, "Validation Error", err.Error())
+			return
+		}
+		Error(c, http.StatusInternalServerError, "Internal Server Error", err.Error())
+		return
+	}
+	c.JSON(http.StatusCreated, gin.H{"bid": toBidResponse(bid)})
+}
+
+// GET /api/v1/auction-players/:auctionPlayerId/bids
+func (h *AuctionHandler) ListBidsByAuctionPlayer(c *gin.Context) {
+	auctionPlayerID := c.Param("auctionPlayerId")
+	bids, err := h.bidRepo.ListByAuctionPlayer(c.Request.Context(), auctionPlayerID)
+	if err != nil {
+		Error(c, http.StatusInternalServerError, "Internal Server Error", err.Error())
+		return
+	}
+	resp := make([]BidResponse, 0, len(bids))
+	for _, b := range bids {
+		resp = append(resp, toBidResponse(b))
+	}
+	c.JSON(http.StatusOK, gin.H{"bids": resp})
+}
+
+// POST /api/v1/auction-players/:auctionPlayerId/sell
+func (h *AuctionHandler) SellCurrentLot(c *gin.Context) {
+	auctionPlayerID := c.Param("auctionPlayerId")
+	var req SellRequest
+	_ = c.ShouldBindJSON(&req)
+
+	if err := h.settlementSvc.SellCurrentLot(c.Request.Context(), auctionservice.SellInput{
+		AuctionPlayerID: auctionPlayerID,
+		ExpectedBidID:   req.ExpectedBidID,
+	}); err != nil {
+		if auctionservice.IsValidationError(err) {
+			Error(c, http.StatusBadRequest, "Validation Error", err.Error())
+			return
+		}
+		Error(c, http.StatusInternalServerError, "Internal Server Error", err.Error())
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"ok": true})
+}
+
+// POST /api/v1/auction-players/:auctionPlayerId/unsold
+func (h *AuctionHandler) MarkUnsold(c *gin.Context) {
+	auctionPlayerID := c.Param("auctionPlayerId")
+	if err := h.settlementSvc.MarkUnsold(c.Request.Context(), auctionPlayerID); err != nil {
+		if auctionservice.IsValidationError(err) {
+			Error(c, http.StatusBadRequest, "Validation Error", err.Error())
+			return
+		}
+		Error(c, http.StatusInternalServerError, "Internal Server Error", err.Error())
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"ok": true})
+}
+
+// POST /api/v1/auction-players/:auctionPlayerId/revert
+func (h *AuctionHandler) RevertSale(c *gin.Context) {
+	auctionPlayerID := c.Param("auctionPlayerId")
+	var req RevertSaleRequest
+	_ = c.ShouldBindJSON(&req)
+
+	if err := h.settlementSvc.RevertSale(c.Request.Context(), auctionPlayerID, req.Reason); err != nil {
+		if auctionservice.IsValidationError(err) {
+			Error(c, http.StatusBadRequest, "Validation Error", err.Error())
+			return
+		}
+		Error(c, http.StatusInternalServerError, "Internal Server Error", err.Error())
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"ok": true})
+}
+
+// GET /api/v1/wallets?teamRegistrationId=&tournamentId=&tournamentEventId=
+func (h *AuctionHandler) GetWallet(c *gin.Context) {
+	teamRegistrationID := c.Query("teamRegistrationId")
+	tournamentID := c.Query("tournamentId")
+	tournamentEventID := c.Query("tournamentEventId")
+
+	if teamRegistrationID == "" || tournamentID == "" || tournamentEventID == "" {
+		Error(c, http.StatusBadRequest, "Validation Error", "teamRegistrationId, tournamentId, tournamentEventId are required")
+		return
+	}
+
+	w, err := h.walletRepo.GetByTournamentEventTeam(c.Request.Context(), tournamentID, tournamentEventID, teamRegistrationID)
+	if err != nil {
+		Error(c, http.StatusInternalServerError, "Internal Server Error", err.Error())
+		return
+	}
+	if w == nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "wallet not found"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"wallet": toWalletResponse(w)})
+}
+
+// helper: not currently used but kept for future URL query parsing
+func parseIntQuery(c *gin.Context, key string, def int) int {
+	v := c.Query(key)
+	if v == "" {
+		return def
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil {
+		return def
+	}
+	return n
+}
+

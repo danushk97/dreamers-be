@@ -7,7 +7,7 @@ import "github.com/dreamers-be/internal/domain/auction"
 type Deps struct {
 	AuctionRepo       auction.AuctionRepository
 	AuctionPlayerRepo auction.AuctionPlayerRepository
-	EventRepo         auction.EventRepository
+	TournamentEventRepo auction.TournamentEventRepository
 	RegistrationRepo  auction.RegistrationRepository
 	TeamRepo          auction.TeamRepository
 	BidRepo           auction.BidRepository

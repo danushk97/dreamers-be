@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"log"
 	"net/http"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	_ "github.com/lib/pq"
@@ -16,6 +17,7 @@ import (
 	"github.com/dreamers-be/internal/domain/storage"
 	playersrv "github.com/dreamers-be/internal/server/player"
 	uploadsrv "github.com/dreamers-be/internal/server/upload"
+	auctionservice "github.com/dreamers-be/internal/service/auction"
 	playersvc "github.com/dreamers-be/internal/service/player"
 	uploadsvc "github.com/dreamers-be/internal/service/upload"
 )
@@ -84,6 +86,40 @@ func main() {
 	uh := ginhandler.NewUploadHandler(uploadSrv, presigner)
 	log.Printf("Use cases and handlers initialized")
 
+	// Auction core flow wiring (MVP)
+	tournamentEventRepo := postgres.NewTournamentEventRepository(db)
+	auctionRepo := postgres.NewAuctionRepository(db)
+	teamRepo := postgres.NewTeamRepository(db)
+	registrationRepo := postgres.NewRegistrationRepository(db)
+	auctionPlayerRepo := postgres.NewAuctionPlayerRepository(db)
+	bidRepo := postgres.NewBidRepository(db)
+	walletRepo := postgres.NewWalletRepository(db)
+
+	deps := auctionservice.Deps{
+		AuctionRepo:         auctionRepo,
+		AuctionPlayerRepo:   auctionPlayerRepo,
+		TournamentEventRepo: tournamentEventRepo,
+		RegistrationRepo:    registrationRepo,
+		TeamRepo:            teamRepo,
+		BidRepo:             bidRepo,
+		WalletRepo:          walletRepo,
+		NowMs:               func() int64 { return time.Now().UnixMilli() },
+	}
+	auctionSvc := auctionservice.NewAuctionService(deps)
+	lotSvc := auctionservice.NewLotService(deps)
+	bidSvc := auctionservice.NewBidService(deps)
+	settlementSvc := auctionservice.NewSettlementService(deps)
+
+	auctionHandler := ginhandler.NewAuctionHandler(
+		auctionSvc,
+		lotSvc,
+		bidSvc,
+		settlementSvc,
+		auctionPlayerRepo,
+		bidRepo,
+		walletRepo,
+	)
+
 	r := gin.New()
 	r.Use(gin.Recovery(), gin.Logger(), corsMiddleware())
 
@@ -91,8 +127,26 @@ func main() {
 	{
 		api.POST("/upload", uh.Upload)
 		api.POST("/players", ph.Create)
-		api.GET("/players", ginhandler.BasicAuth(ginhandler.BasicAuthCredentials), ph.List)
-		api.GET("/players/:id", ginhandler.BasicAuth(ginhandler.BasicAuthCredentials), ph.Get)
+		// Auction core flow
+		api.POST("/auctions", auctionHandler.CreateAuction)
+		api.GET("/tournaments/:tournamentId/events/:tournamentEventId/teams", auctionHandler.ListRegisteredTeams)
+		api.GET("/auctions/:auctionId", auctionHandler.GetAuction)
+		api.PATCH("/auctions/:auctionId", auctionHandler.PatchAuction)
+		api.POST("/auctions/:auctionId/reset", auctionHandler.ResetTestAuction)
+		api.POST("/auctions/:auctionId/eligible", auctionHandler.ListEligibleRegistrations)
+		api.POST("/auctions/:auctionId/lots/bulk", auctionHandler.CreateLotsBulk)
+		api.GET("/auctions/:auctionId/lots/by-registration-serial/:serialNumber", auctionHandler.GetLotByRegistrationSerial)
+		api.GET("/auctions/:auctionId/lots", auctionHandler.ListLotsByAuction)
+		api.POST("/auction-players/:auctionPlayerId/bids", auctionHandler.PlaceBid)
+		api.GET("/auction-players/:auctionPlayerId/bids", auctionHandler.ListBidsByAuctionPlayer)
+		api.POST("/auction-players/:auctionPlayerId/sell", auctionHandler.SellCurrentLot)
+		api.POST("/auction-players/:auctionPlayerId/unsold", auctionHandler.MarkUnsold)
+		api.POST("/auction-players/:auctionPlayerId/revert", auctionHandler.RevertSale)
+		api.GET("/wallets", auctionHandler.GetWallet)
+		// api.GET("/players", ginhandler.BasicAuth(ginhandler.BasicAuthCredentials), ph.List)
+		api.GET("/players", ph.List)
+		// api.GET("/players/:id", ginhandler.BasicAuth(ginhandler.BasicAuthCredentials), ph.Get)
+		api.GET("/players/:id", ph.Get)
 	}
 	log.Printf("API routes registered")
 

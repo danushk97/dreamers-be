@@ -12,8 +12,8 @@ const (
 // Amounts are in the smallest currency unit.
 type Wallet struct {
 	ID           string
-	TournamentID string
-	EventID      string
+	TournamentID      string
+	TournamentEventID string
 	TeamID       string // TournamentTeamRegistration id
 	Balance      int64
 	CreatedAt    int64 // unix milliseconds

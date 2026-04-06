@@ -21,7 +21,6 @@ type AuctionPlayer struct {
 	FinalPrice                       int64 // set when sold; 0 if not sold
 	SoldToTeamRegistrationID         string // TournamentTeamRegistration id; empty if not sold
 	LotNumber                        int    // display order within auction
-	OrderIndex                       int    // optional sort key; can match LotNumber
 	IsActive                         bool   // only one lot might be "on the block" at a time
 	CreatedAt                        int64 // unix milliseconds
 }

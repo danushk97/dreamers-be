@@ -10,20 +10,20 @@ import (
 )
 
 type LotService struct {
-	auctions auction.AuctionRepository
-	lots     auction.AuctionPlayerRepository
-	events   auction.EventRepository
-	regs     auction.RegistrationRepository
-	nowMs    func() int64
+	auctions         auction.AuctionRepository
+	lots             auction.AuctionPlayerRepository
+	tournamentEvents auction.TournamentEventRepository
+	regs             auction.RegistrationRepository
+	nowMs            func() int64
 }
 
 func NewLotService(d Deps) *LotService {
 	return &LotService{
-		auctions: d.AuctionRepo,
-		lots:     d.AuctionPlayerRepo,
-		events:   d.EventRepo,
-		regs:     d.RegistrationRepo,
-		nowMs:    d.now(),
+		auctions:         d.AuctionRepo,
+		lots:             d.AuctionPlayerRepo,
+		tournamentEvents: d.TournamentEventRepo,
+		regs:             d.RegistrationRepo,
+		nowMs:            d.now(),
 	}
 }
 
@@ -48,12 +48,12 @@ func (s *LotService) CreateLot(ctx context.Context, in CreateLotInput) (*auction
 	if a == nil {
 		return nil, &ValidationError{Err: fmt.Errorf("auction not found")}
 	}
-	ev, err := s.events.GetByID(ctx, a.EventID)
+	te, err := s.tournamentEvents.GetByID(ctx, a.TournamentEventID)
 	if err != nil {
-		return nil, fmt.Errorf("get event: %w", err)
+		return nil, fmt.Errorf("get tournament event: %w", err)
 	}
-	if ev == nil || ev.Attrs.TeamEventRules == nil {
-		return nil, &ValidationError{Err: fmt.Errorf("event rules not found")}
+	if te == nil || te.Attrs.TeamEventRules == nil {
+		return nil, &ValidationError{Err: fmt.Errorf("tournament event rules not found")}
 	}
 
 	reg, err := s.regs.GetByID(ctx, in.TournamentPlayerRegistrationID)
@@ -69,7 +69,7 @@ func (s *LotService) CreateLot(ctx context.Context, in CreateLotInput) (*auction
 
 	base := in.BasePrice
 	if base <= 0 {
-		base = ev.Attrs.TeamEventRules.BaseBid
+		base = te.Attrs.TeamEventRules.BaseBid
 	}
 	ap := &auction.AuctionPlayer{
 		ID:                             uuid.New().String(),
@@ -78,7 +78,6 @@ func (s *LotService) CreateLot(ctx context.Context, in CreateLotInput) (*auction
 		Status:                         auction.AuctionPlayerPending,
 		BasePrice:                      base,
 		LotNumber:                      in.LotNumber,
-		OrderIndex:                     in.LotNumber,
 		IsActive:                       false,
 		CreatedAt:                      s.nowMs(),
 	}
@@ -101,14 +100,26 @@ func (s *LotService) ListEligibleRegistrations(ctx context.Context, auctionID st
 	if a == nil {
 		return nil, &ValidationError{Err: fmt.Errorf("auction not found")}
 	}
-	return s.regs.ListEligible(ctx, a.TournamentID, a.EventID, f)
+	return s.regs.ListEligible(ctx, a.TournamentID, a.TournamentEventID, f)
 }
 
 type CreateLotsBulkInput struct {
-	AuctionID        string
-	RegistrationIDs  []string
-	StartLotNumber   int
-	BasePrice        int64 // 0 = event base bid
+	AuctionID       string
+	RegistrationIDs []string
+	StartLotNumber  int
+	BasePrice       int64 // 0 = event base bid
+}
+
+// CreateLotsByQueryInput creates lots by fetching eligible registrations server-side.
+// Client does not need to send registration IDs.
+type CreateLotsByQueryInput struct {
+	AuctionID          string
+	TournamentID      string
+	TournamentEventID string
+	Filter             auction.RegistrationFilter
+	StartLotNumber    int
+	BasePrice         int64 // 0 = event base bid
+	Limit              int   // 0 = no limit
 }
 
 // CreateLotsBulk creates lots in a single call for the auctioneer-selected category/round.
@@ -126,25 +137,42 @@ func (s *LotService) CreateLotsBulk(ctx context.Context, in CreateLotsBulkInput)
 	if a == nil {
 		return nil, &ValidationError{Err: fmt.Errorf("auction not found")}
 	}
-	ev, err := s.events.GetByID(ctx, a.EventID)
+	te, err := s.tournamentEvents.GetByID(ctx, a.TournamentEventID)
 	if err != nil {
-		return nil, fmt.Errorf("get event: %w", err)
+		return nil, fmt.Errorf("get tournament event: %w", err)
 	}
-	if ev == nil || ev.Attrs.TeamEventRules == nil {
-		return nil, &ValidationError{Err: fmt.Errorf("event rules not found")}
+	if te == nil || te.Attrs.TeamEventRules == nil {
+		return nil, &ValidationError{Err: fmt.Errorf("tournament event rules not found")}
 	}
 	base := in.BasePrice
 	if base <= 0 {
-		base = ev.Attrs.TeamEventRules.BaseBid
+		base = te.Attrs.TeamEventRules.BaseBid
 	}
 	if in.StartLotNumber <= 0 {
 		in.StartLotNumber = 1
 	}
 
+	// Reauction support: if an auction_player row already exists for the same
+	// registration and is in `unsold` state, switch it back to `active`.
+	// This avoids creating duplicates for reauction flows.
+	existingLots, err := s.lots.ListByAuction(ctx, in.AuctionID)
+	if err != nil {
+		return nil, fmt.Errorf("list existing lots: %w", err)
+	}
+	existingByRegID := make(map[string]*auction.AuctionPlayer, len(existingLots))
+	for _, l := range existingLots {
+		if l == nil {
+			continue
+		}
+		// If there are duplicates from earlier runs, prefer unsold so reauction can activate them.
+		if prev, ok := existingByRegID[l.TournamentPlayerRegistrationID]; !ok || prev.Status != auction.AuctionPlayerUnsold && l.Status == auction.AuctionPlayerUnsold {
+			existingByRegID[l.TournamentPlayerRegistrationID] = l
+		}
+	}
+
 	out := make([]*auction.AuctionPlayer, 0, len(in.RegistrationIDs))
 	lotNum := in.StartLotNumber
 	for _, regID := range in.RegistrationIDs {
-		regID = regID
 		if regID == "" {
 			return nil, &ValidationError{Err: fmt.Errorf("registration_ids contains empty value")}
 		}
@@ -159,6 +187,19 @@ func (s *LotService) CreateLotsBulk(ctx context.Context, in CreateLotsBulkInput)
 			return nil, &ValidationError{Err: fmt.Errorf("player already assigned to a team")}
 		}
 
+		// If the registration already has a lot for this auction, reuse it.
+		if existing := existingByRegID[regID]; existing != nil {
+			if existing.Status == auction.AuctionPlayerUnsold {
+				if err := s.lots.UpdateStatus(ctx, existing.ID, auction.AuctionPlayerActive, true); err != nil {
+					return nil, fmt.Errorf("activate unsold lot: %w", err)
+				}
+				existing.Status = auction.AuctionPlayerActive
+				existing.IsActive = true
+			}
+			out = append(out, existing)
+			continue
+		}
+
 		ap := &auction.AuctionPlayer{
 			ID:                             uuid.New().String(),
 			AuctionID:                      in.AuctionID,
@@ -166,7 +207,6 @@ func (s *LotService) CreateLotsBulk(ctx context.Context, in CreateLotsBulkInput)
 			Status:                         auction.AuctionPlayerPending,
 			BasePrice:                      base,
 			LotNumber:                      lotNum,
-			OrderIndex:                     lotNum,
 			IsActive:                       false,
 			CreatedAt:                      s.nowMs(),
 		}
@@ -180,3 +220,141 @@ func (s *LotService) CreateLotsBulk(ctx context.Context, in CreateLotsBulkInput)
 	return out, nil
 }
 
+// CreateLotsByQuery creates lots by selecting unassigned eligible registrations server-side.
+func (s *LotService) CreateLotsByQuery(ctx context.Context, in CreateLotsByQueryInput) ([]*auction.AuctionPlayer, error) {
+	if in.AuctionID == "" {
+		return nil, &ValidationError{Err: fmt.Errorf("auction_id is required")}
+	}
+
+	a, err := s.auctions.GetByID(ctx, in.AuctionID)
+	if err != nil {
+		return nil, fmt.Errorf("get auction: %w", err)
+	}
+	if a == nil {
+		return nil, &ValidationError{Err: fmt.Errorf("auction not found")}
+	}
+
+	// Allow client to pass tournament/event, but validate consistency with auction if they do.
+	tournamentID := a.TournamentID
+	tournamentEventID := a.TournamentEventID
+	if in.TournamentID != "" && in.TournamentID != tournamentID {
+		return nil, &ValidationError{Err: fmt.Errorf("tournament_id does not match auction")}
+	}
+	if in.TournamentEventID != "" && in.TournamentEventID != tournamentEventID {
+		return nil, &ValidationError{Err: fmt.Errorf("tournament_event_id does not match auction")}
+	}
+
+	te, err := s.tournamentEvents.GetByID(ctx, tournamentEventID)
+	if err != nil {
+		return nil, fmt.Errorf("get tournament event: %w", err)
+	}
+	if te == nil || te.Attrs.TeamEventRules == nil {
+		return nil, &ValidationError{Err: fmt.Errorf("tournament event rules not found")}
+	}
+
+	base := in.BasePrice
+	if base <= 0 {
+		base = te.Attrs.TeamEventRules.BaseBid
+	}
+	startLot := in.StartLotNumber
+	if startLot <= 0 {
+		startLot = 1
+	}
+
+	regs, err := s.regs.ListEligible(ctx, tournamentID, tournamentEventID, in.Filter)
+	if err != nil {
+		return nil, fmt.Errorf("list eligible registrations: %w", err)
+	}
+	if in.Limit > 0 && len(regs) > in.Limit {
+		regs = regs[:in.Limit]
+	}
+
+	// Same reauction logic as bulk: reuse existing unsold lots and activate them.
+	existingLots, err := s.lots.ListByAuction(ctx, in.AuctionID)
+	if err != nil {
+		return nil, fmt.Errorf("list existing lots: %w", err)
+	}
+	existingByRegID := make(map[string]*auction.AuctionPlayer, len(existingLots))
+	for _, l := range existingLots {
+		if l == nil {
+			continue
+		}
+		if prev, ok := existingByRegID[l.TournamentPlayerRegistrationID]; !ok || prev.Status != auction.AuctionPlayerUnsold && l.Status == auction.AuctionPlayerUnsold {
+			existingByRegID[l.TournamentPlayerRegistrationID] = l
+		}
+	}
+
+	out := make([]*auction.AuctionPlayer, 0, len(regs))
+	lotNum := startLot
+	for _, reg := range regs {
+		if reg == nil {
+			continue
+		}
+		// Extra safety: service invariant is unassigned registrations.
+		if reg.TeamID != "" {
+			continue
+		}
+
+		// Reuse existing lots for this auction/registration if present.
+		if existing := existingByRegID[reg.ID]; existing != nil {
+			if existing.Status == auction.AuctionPlayerUnsold {
+				if err := s.lots.UpdateStatus(ctx, existing.ID, auction.AuctionPlayerActive, true); err != nil {
+					return nil, fmt.Errorf("activate unsold lot: %w", err)
+				}
+				existing.Status = auction.AuctionPlayerActive
+				existing.IsActive = true
+			}
+			out = append(out, existing)
+			continue
+		}
+
+		ap := &auction.AuctionPlayer{
+			ID:                             uuid.New().String(),
+			AuctionID:                      in.AuctionID,
+			TournamentPlayerRegistrationID: reg.ID,
+			Status:                         auction.AuctionPlayerPending,
+			BasePrice:                      base,
+			LotNumber:                      lotNum,
+			IsActive:                       false,
+			CreatedAt:                      s.nowMs(),
+		}
+		if err := s.lots.Create(ctx, ap); err != nil {
+			return nil, fmt.Errorf("create lot: %w", err)
+		}
+		out = append(out, ap)
+		lotNum++
+	}
+
+	return out, nil
+}
+
+// GetLotByRegistrationSerial returns the lot for this auction whose player registration has the
+// given serial_number (scoped to the auction's tournament event). The lot may be in any status
+// (pending, active, sold, unsold, skipped).
+func (s *LotService) GetLotByRegistrationSerial(ctx context.Context, auctionID string, serialNumber int) (*auction.AuctionPlayer, *auction.TournamentPlayerRegistration, error) {
+	if auctionID == "" || serialNumber < 1 {
+		return nil, nil, &ValidationError{Err: fmt.Errorf("auction_id and a positive serial_number are required")}
+	}
+	a, err := s.auctions.GetByID(ctx, auctionID)
+	if err != nil {
+		return nil, nil, fmt.Errorf("get auction: %w", err)
+	}
+	if a == nil {
+		return nil, nil, &ValidationError{Err: fmt.Errorf("auction not found")}
+	}
+	ap, err := s.lots.GetByAuctionAndRegistrationSerial(ctx, auctionID, serialNumber)
+	if err != nil {
+		return nil, nil, fmt.Errorf("get lot by registration serial: %w", err)
+	}
+	if ap == nil {
+		return nil, nil, &ValidationError{Err: fmt.Errorf("no lot for this registration serial in this auction; create the lot first")}
+	}
+	reg, err := s.regs.GetByID(ctx, ap.TournamentPlayerRegistrationID)
+	if err != nil {
+		return nil, nil, fmt.Errorf("get registration: %w", err)
+	}
+	if reg == nil {
+		return nil, nil, &ValidationError{Err: fmt.Errorf("registration not found for lot")}
+	}
+	return ap, reg, nil
+}
