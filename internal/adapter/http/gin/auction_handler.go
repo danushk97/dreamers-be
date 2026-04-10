@@ -1,10 +1,14 @@
 package gin
 
 import (
+	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 
@@ -183,6 +187,257 @@ func toBidResponse(b *auction.Bid) BidResponse {
 	}
 }
 
+func relayShortTeamLabel(name string) string {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return ""
+	}
+	for _, sep := range []string{" — ", " – ", " - ", " –", "-"} {
+		if i := strings.Index(name, sep); i > 0 && i <= 28 {
+			return strings.TrimSpace(name[:i])
+		}
+	}
+	if len(name) > 28 {
+		return name[:25] + "…"
+	}
+	return name
+}
+
+func findTournamentTeamByRegID(teams []*auction.TournamentTeamRegistration, teamRegID string) *auction.TournamentTeamRegistration {
+	for _, t := range teams {
+		if t != nil && t.ID == teamRegID {
+			return t
+		}
+	}
+	return nil
+}
+
+// RelayLeadingBidderResponse mirrors the “high bid” team card (logo, name, amount shown to audience).
+type RelayLeadingBidderResponse struct {
+	TeamRegistrationID string `json:"teamRegistrationId,omitempty"`
+	TeamName           string `json:"teamName"`
+	TeamLogoURL        string `json:"teamLogoUrl"`
+	ShortLabel         string `json:"shortLabel"` // compact label for subtitles
+	HighBidPaisa       int64  `json:"highBidPaisa"`   // actual top bid; 0 if none
+	DisplayPaisa       int64  `json:"displayPaisa"`   // amount to show large (matches console: base until first bid)
+	HasBid             bool   `json:"hasBid"`
+}
+
+// RelaySnapshotResponse is pushed over SSE for spectator / read-only clients.
+type RelaySnapshotResponse struct {
+	AuctionID                 string                               `json:"auctionId"`
+	TournamentID              string                               `json:"tournamentId"`
+	TournamentEventID         string                               `json:"tournamentEventId"`
+	Mode                      auction.AuctionMode                  `json:"mode"`
+	RunMode                   auction.AuctionRunMode               `json:"runMode"`
+	GeneratedAtMs             int64                                `json:"generatedAtMs"`
+	FocusLot                  *AuctionPlayerResponse               `json:"focusLot"`
+	RegistrationSerial        int                                  `json:"registrationSerial,omitempty"`
+	PlayerID                  string                               `json:"playerId,omitempty"`
+	LeadingBidder             *RelayLeadingBidderResponse          `json:"leadingBidder,omitempty"`
+	Bids                      []BidResponse                        `json:"bids"`
+	HighBidPaisa              int64                                `json:"highBidPaisa"`
+	LeadingTeamRegistrationID string                               `json:"leadingTeamRegistrationId,omitempty"`
+	BidCount                  int                                  `json:"bidCount"`
+	Teams                     []TournamentTeamRegistrationResponse `json:"teams"`
+}
+
+func pickFocusLotForRelay(lots []*auction.AuctionPlayer) *auction.AuctionPlayer {
+	for _, l := range lots {
+		if l != nil && l.IsActive {
+			return l
+		}
+	}
+	var best *auction.AuctionPlayer
+	for _, l := range lots {
+		if l == nil {
+			continue
+		}
+		if l.Status != auction.AuctionPlayerPending && l.Status != auction.AuctionPlayerActive {
+			continue
+		}
+		if best == nil || l.LotNumber < best.LotNumber {
+			best = l
+		}
+	}
+	return best
+}
+
+func (h *AuctionHandler) buildRelaySnapshot(ctx context.Context, auctionID string, nowMs int64) (RelaySnapshotResponse, error) {
+	out := RelaySnapshotResponse{GeneratedAtMs: nowMs, Bids: []BidResponse{}, Teams: []TournamentTeamRegistrationResponse{}}
+	auc, err := h.auctionSvc.GetAuction(ctx, auctionID)
+	if err != nil {
+		return out, err
+	}
+	if auc == nil {
+		return out, fmt.Errorf("auction not found")
+	}
+	out.AuctionID = auc.ID
+	out.TournamentID = auc.TournamentID
+	out.TournamentEventID = auc.TournamentEventID
+	out.Mode = auc.Mode
+	out.RunMode = auc.RunMode
+
+	regTeams, err := h.auctionSvc.ListRegisteredTeams(ctx, auc.TournamentID, auc.TournamentEventID)
+	if err != nil {
+		return out, err
+	}
+	for _, t := range regTeams {
+		if t == nil {
+			continue
+		}
+		out.Teams = append(out.Teams, TournamentTeamRegistrationResponse{
+			ID: t.ID, TournamentID: t.TournamentID, TournamentEventID: t.TournamentEventID,
+			TeamName: t.TeamName, TeamLogoURL: t.TeamLogoURL, CreatedAt: t.CreatedAt,
+		})
+	}
+
+	lots, err := h.auctionPlayerRepo.ListByAuction(ctx, auctionID)
+	if err != nil {
+		return out, err
+	}
+	var focus *auction.AuctionPlayer
+	if id := strings.TrimSpace(auc.DisplayAuctionPlayerID); id != "" {
+		for _, l := range lots {
+			if l != nil && l.ID == id {
+				focus = l
+				break
+			}
+		}
+	}
+	if focus == nil {
+		focus = pickFocusLotForRelay(lots)
+	}
+	if focus == nil {
+		return out, nil
+	}
+	fl := toAuctionPlayerResponse(focus)
+	out.FocusLot = &fl
+
+	if serial, playerID, metaErr := h.lotSvc.RegistrationDisplayMeta(ctx, focus.TournamentPlayerRegistrationID); metaErr == nil {
+		out.RegistrationSerial = serial
+		out.PlayerID = playerID
+	}
+
+	bids, err := h.bidRepo.ListByAuctionPlayer(ctx, focus.ID)
+	if err != nil {
+		return out, err
+	}
+	sort.Slice(bids, func(i, j int) bool {
+		if bids[i] == nil || bids[j] == nil {
+			return false
+		}
+		return bids[i].RecordedAt < bids[j].RecordedAt
+	})
+	const maxBids = 50
+	start := 0
+	if len(bids) > maxBids {
+		start = len(bids) - maxBids
+	}
+	for i := start; i < len(bids); i++ {
+		if bids[i] == nil {
+			continue
+		}
+		out.Bids = append(out.Bids, toBidResponse(bids[i]))
+	}
+	out.BidCount = len(bids)
+	var highPaisa int64
+	var leadTeamID string
+	if hb, hbErr := h.bidRepo.GetHighestBid(ctx, focus.ID); hbErr == nil && hb != nil {
+		highPaisa = hb.Amount
+		leadTeamID = hb.TeamRegistrationID
+		out.HighBidPaisa = highPaisa
+		out.LeadingTeamRegistrationID = leadTeamID
+	}
+	hasBid := out.BidCount > 0 && highPaisa > 0
+	displayPaisa := focus.BasePrice
+	if hasBid {
+		displayPaisa = highPaisa
+	}
+	lb := &RelayLeadingBidderResponse{
+		TeamRegistrationID: leadTeamID,
+		HighBidPaisa:       highPaisa,
+		DisplayPaisa:       displayPaisa,
+		HasBid:             hasBid,
+	}
+	if leadTeamID != "" {
+		if tr := findTournamentTeamByRegID(regTeams, leadTeamID); tr != nil {
+			lb.TeamName = tr.TeamName
+			lb.TeamLogoURL = tr.TeamLogoURL
+			lb.ShortLabel = relayShortTeamLabel(tr.TeamName)
+		}
+	}
+	out.LeadingBidder = lb
+	return out, nil
+}
+
+// GET /v1/auctions/:auctionId/relay/stream — Server-Sent Events; JSON snapshots ~1s for spectators.
+func (h *AuctionHandler) StreamAuctionRelay(c *gin.Context) {
+	auctionID := strings.TrimSpace(c.Param("auctionId"))
+	if auctionID == "" {
+		Error(c, http.StatusBadRequest, "Validation Error", "auctionId is required")
+		return
+	}
+	if _, err := h.auctionSvc.GetAuction(c.Request.Context(), auctionID); err != nil {
+		if auctionservice.IsValidationError(err) {
+			if strings.Contains(err.Error(), "auction not found") {
+				Error(c, http.StatusNotFound, "Not Found", err.Error())
+				return
+			}
+			Error(c, http.StatusBadRequest, "Validation Error", err.Error())
+			return
+		}
+		Error(c, http.StatusInternalServerError, "Internal Server Error", err.Error())
+		return
+	}
+
+	c.Writer.Header().Set("Content-Type", "text/event-stream")
+	c.Writer.Header().Set("Cache-Control", "no-cache")
+	c.Writer.Header().Set("Connection", "keep-alive")
+	c.Writer.Header().Set("X-Accel-Buffering", "no")
+
+	flusher, ok := c.Writer.(http.Flusher)
+	if !ok {
+		Error(c, http.StatusInternalServerError, "Internal Server Error", "streaming unsupported")
+		return
+	}
+
+	c.Status(http.StatusOK)
+	flusher.Flush()
+
+	ticker := time.NewTicker(900 * time.Millisecond)
+	defer ticker.Stop()
+
+	writeSnapshot := func() bool {
+		snap, err := h.buildRelaySnapshot(c.Request.Context(), auctionID, time.Now().UnixMilli())
+		if err != nil {
+			return false
+		}
+		b, err := json.Marshal(snap)
+		if err != nil {
+			return false
+		}
+		_, _ = fmt.Fprintf(c.Writer, "event: snapshot\ndata: %s\n\n", b)
+		flusher.Flush()
+		return true
+	}
+
+	if !writeSnapshot() {
+		return
+	}
+
+	for {
+		select {
+		case <-c.Request.Context().Done():
+			return
+		case <-ticker.C:
+			if !writeSnapshot() {
+				return
+			}
+		}
+	}
+}
+
 type TournamentPlayerRegistrationResponse struct {
 	ID                string `json:"id"`
 	TournamentID      string `json:"tournamentId"`
@@ -246,6 +501,32 @@ func (h *AuctionHandler) resolveRegistrationFilter(c *gin.Context, auctionID str
 func (h *AuctionHandler) GetAuction(c *gin.Context) {
 	id := strings.TrimSpace(c.Param("auctionId"))
 	auc, err := h.auctionSvc.GetAuction(c.Request.Context(), id)
+	if err != nil {
+		if auctionservice.IsValidationError(err) {
+			if strings.Contains(err.Error(), "auction not found") {
+				Error(c, http.StatusNotFound, "Not Found", err.Error())
+				return
+			}
+			Error(c, http.StatusBadRequest, "Validation Error", err.Error())
+			return
+		}
+		Error(c, http.StatusInternalServerError, "Internal Server Error", err.Error())
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"auction": auc})
+}
+
+// PUT /v1/auctions/:auctionId/display-lot — body: { "auctionPlayerId": "<uuid>" | "" } sets console + relay focus (empty clears).
+func (h *AuctionHandler) PutAuctionDisplayLot(c *gin.Context) {
+	auctionID := strings.TrimSpace(c.Param("auctionId"))
+	var req struct {
+		AuctionPlayerID string `json:"auctionPlayerId"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		Error(c, http.StatusBadRequest, "Bad Request", "invalid request body")
+		return
+	}
+	auc, err := h.lotSvc.SetDisplayAuctionPlayer(c.Request.Context(), auctionID, req.AuctionPlayerID)
 	if err != nil {
 		if auctionservice.IsValidationError(err) {
 			if strings.Contains(err.Error(), "auction not found") {

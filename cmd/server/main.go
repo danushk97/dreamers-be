@@ -131,7 +131,9 @@ func main() {
 		api.POST("/auctions", auctionHandler.CreateAuction)
 		api.GET("/tournaments/:tournamentId/events/:tournamentEventId/teams", auctionHandler.ListRegisteredTeams)
 		api.GET("/auctions/:auctionId", auctionHandler.GetAuction)
+		api.GET("/auctions/:auctionId/relay/stream", auctionHandler.StreamAuctionRelay)
 		api.PATCH("/auctions/:auctionId", auctionHandler.PatchAuction)
+		api.PUT("/auctions/:auctionId/display-lot", auctionHandler.PutAuctionDisplayLot)
 		api.POST("/auctions/:auctionId/reset", auctionHandler.ResetTestAuction)
 		api.POST("/auctions/:auctionId/eligible", auctionHandler.ListEligibleRegistrations)
 		api.POST("/auctions/:auctionId/lots/bulk", auctionHandler.CreateLotsBulk)
@@ -145,7 +147,7 @@ func main() {
 		api.GET("/wallets", auctionHandler.GetWallet)
 		// api.GET("/players", ginhandler.BasicAuth(ginhandler.BasicAuthCredentials), ph.List)
 		api.GET("/players", ph.List)
-		// api.GET("/players/:id", ginhandler.BasicAuth(ginhandler.BasicAuthCredentials), ph.Get)
+		// Single player by id is intentionally public (no BasicAuth) for auction watch / relay clients.
 		api.GET("/players/:id", ph.Get)
 	}
 	log.Printf("API routes registered")

@@ -222,6 +222,9 @@ func (s *SettlementService) ResetTestAuction(ctx context.Context, auctionID stri
 	if err := s.lots.ResetAllLotsToPending(ctx, auctionID); err != nil {
 		return fmt.Errorf("reset lots: %w", err)
 	}
+	if err := s.auctions.UpdateDisplayAuctionPlayer(ctx, auctionID, ""); err != nil {
+		return fmt.Errorf("clear display lot: %w", err)
+	}
 	return nil
 }
 

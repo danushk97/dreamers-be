@@ -37,6 +37,8 @@ type AuctionRepository interface {
 	Create(ctx context.Context, a *Auction) error
 	GetByID(ctx context.Context, id string) (*Auction, error)
 	UpdateRunMode(ctx context.Context, auctionID string, runMode AuctionRunMode) error
+	// UpdateDisplayAuctionPlayer sets which auction_players row is the public/console focus. Empty auctionPlayerID clears.
+	UpdateDisplayAuctionPlayer(ctx context.Context, auctionID, auctionPlayerID string) error
 }
 
 // AuctionPlayerRepository manages auction lots.

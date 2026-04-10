@@ -330,6 +330,20 @@ func (mr *MockAuctionRepositoryMockRecorder) UpdateRunMode(ctx, auctionID, runMo
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateRunMode", reflect.TypeOf((*MockAuctionRepository)(nil).UpdateRunMode), ctx, auctionID, runMode)
 }
 
+// UpdateDisplayAuctionPlayer mocks base method.
+func (m *MockAuctionRepository) UpdateDisplayAuctionPlayer(ctx context.Context, auctionID, auctionPlayerID string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateDisplayAuctionPlayer", ctx, auctionID, auctionPlayerID)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpdateDisplayAuctionPlayer indicates an expected call of UpdateDisplayAuctionPlayer.
+func (mr *MockAuctionRepositoryMockRecorder) UpdateDisplayAuctionPlayer(ctx, auctionID, auctionPlayerID interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateDisplayAuctionPlayer", reflect.TypeOf((*MockAuctionRepository)(nil).UpdateDisplayAuctionPlayer), ctx, auctionID, auctionPlayerID)
+}
+
 // MockAuctionPlayerRepository is a mock of AuctionPlayerRepository interface.
 type MockAuctionPlayerRepository struct {
 	ctrl     *gomock.Controller

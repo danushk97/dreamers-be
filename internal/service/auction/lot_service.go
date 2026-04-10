@@ -3,6 +3,7 @@ package auctionservice
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/google/uuid"
 
@@ -357,4 +358,51 @@ func (s *LotService) GetLotByRegistrationSerial(ctx context.Context, auctionID s
 		return nil, nil, &ValidationError{Err: fmt.Errorf("registration not found for lot")}
 	}
 	return ap, reg, nil
+}
+
+// SetDisplayAuctionPlayer records which lot the console and relay should show. Empty auctionPlayerID clears (fallback heuristic).
+func (s *LotService) SetDisplayAuctionPlayer(ctx context.Context, auctionID, auctionPlayerID string) (*auction.Auction, error) {
+	if auctionID == "" {
+		return nil, &ValidationError{Err: fmt.Errorf("auction_id is required")}
+	}
+	a, err := s.auctions.GetByID(ctx, auctionID)
+	if err != nil {
+		return nil, err
+	}
+	if a == nil {
+		return nil, &ValidationError{Err: fmt.Errorf("auction not found")}
+	}
+	lotID := strings.TrimSpace(auctionPlayerID)
+	if lotID == "" {
+		if err := s.auctions.UpdateDisplayAuctionPlayer(ctx, auctionID, ""); err != nil {
+			return nil, err
+		}
+		return s.auctions.GetByID(ctx, auctionID)
+	}
+	lot, err := s.lots.GetByID(ctx, lotID)
+	if err != nil {
+		return nil, err
+	}
+	if lot == nil || lot.AuctionID != auctionID {
+		return nil, &ValidationError{Err: fmt.Errorf("auction player not in this auction")}
+	}
+	if err := s.auctions.UpdateDisplayAuctionPlayer(ctx, auctionID, lotID); err != nil {
+		return nil, err
+	}
+	return s.auctions.GetByID(ctx, auctionID)
+}
+
+// RegistrationDisplayMeta returns serial number and player id for a tournament player registration (for relay / UI).
+func (s *LotService) RegistrationDisplayMeta(ctx context.Context, registrationID string) (serialNumber int, playerID string, err error) {
+	if registrationID == "" {
+		return 0, "", nil
+	}
+	r, err := s.regs.GetByID(ctx, registrationID)
+	if err != nil {
+		return 0, "", err
+	}
+	if r == nil {
+		return 0, "", nil
+	}
+	return r.SerialNumber, r.PlayerID, nil
 }

@@ -97,8 +97,8 @@ func (r *AuctionRepository) Create(ctx context.Context, a *auction.Auction) erro
 	}
 	_, err = r.db.ExecContext(
 		ctx,
-		`INSERT INTO auctions (id, tournament_id, tournament_event_id, mode, run_mode, filter_presets, created_at)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+		`INSERT INTO auctions (id, tournament_id, tournament_event_id, mode, run_mode, filter_presets, display_auction_player_id, created_at)
+		 VALUES ($1, $2, $3, $4, $5, $6, NULL, $7)`,
 		a.ID, a.TournamentID, a.TournamentEventID, string(a.Mode), runMode, filterRaw, a.CreatedAt,
 	)
 	return err
@@ -109,12 +109,13 @@ func (r *AuctionRepository) GetByID(ctx context.Context, id string) (*auction.Au
 	var filterRaw []byte
 	var modeStr string
 	var runModeStr string
+	var displayLotID sql.NullString
 	err := r.db.QueryRowContext(
 		ctx,
-		`SELECT id, tournament_id, tournament_event_id, mode, run_mode, filter_presets, created_at
+		`SELECT id, tournament_id, tournament_event_id, mode, run_mode, filter_presets, display_auction_player_id, created_at
 		 FROM auctions WHERE id = $1`,
 		id,
-	).Scan(&a.ID, &a.TournamentID, &a.TournamentEventID, &modeStr, &runModeStr, &filterRaw, &a.CreatedAt)
+	).Scan(&a.ID, &a.TournamentID, &a.TournamentEventID, &modeStr, &runModeStr, &filterRaw, &displayLotID, &a.CreatedAt)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -133,7 +134,34 @@ func (r *AuctionRepository) GetByID(ctx context.Context, id string) (*auction.Au
 			return nil, err
 		}
 	}
+	if displayLotID.Valid {
+		a.DisplayAuctionPlayerID = displayLotID.String
+	}
 	return &a, nil
+}
+
+func (r *AuctionRepository) UpdateDisplayAuctionPlayer(ctx context.Context, auctionID, auctionPlayerID string) error {
+	if auctionID == "" {
+		return fmt.Errorf("auction_id is required")
+	}
+	var err error
+	if auctionPlayerID == "" {
+		_, err = r.db.ExecContext(
+			ctx,
+			`UPDATE auctions SET display_auction_player_id = NULL WHERE id = $1`,
+			auctionID,
+		)
+	} else {
+		_, err = r.db.ExecContext(
+			ctx,
+			`UPDATE auctions SET display_auction_player_id = $1 WHERE id = $2`,
+			auctionPlayerID, auctionID,
+		)
+	}
+	if err != nil {
+		return err
+	}
+	return nil
 }
 
 func (r *AuctionRepository) UpdateRunMode(ctx context.Context, auctionID string, runMode auction.AuctionRunMode) error {

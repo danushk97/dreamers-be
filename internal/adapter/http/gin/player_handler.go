@@ -81,7 +81,7 @@ func (h *PlayerHandler) List(c *gin.Context) {
 }
 
 // Get returns a single player by ID with presigned URLs.
-// GET /api/v1/players/:id
+// GET /v1/players/:id — no auth middleware; safe for public read (auction live-relay / watch UI).
 func (h *PlayerHandler) Get(c *gin.Context) {
 	id := strings.TrimSpace(c.Param("id"))
 	p, err := h.server.Get(c.Request.Context(), id)
