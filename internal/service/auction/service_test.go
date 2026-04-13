@@ -34,15 +34,16 @@ func TestService_PlaceBid_ReservesForMinimumRoster(t *testing.T) {
 	})
 
 	lot := &auction.AuctionPlayer{ID: "lot1", AuctionID: "auc1", Status: auction.AuctionPlayerActive, BasePrice: 0}
-	auc := &auction.Auction{ID: "auc1", TournamentID: "t1", TournamentEventID: "te1"}
+	auc := &auction.Auction{
+		ID: "auc1", TournamentID: "t1", TournamentEventID: "te1",
+		Rules: auction.AuctionRules{MinBidAmount: 100, MaxBidAmount: 1000},
+	}
 	te := &auction.TournamentEvent{
 		ID: "te1",
 		Attrs: auction.EventAttrs{TeamEventRules: &auction.TeamEventRules{
 			IsAuction:         true,
 			MinPlayersPerTeam: 3,
 			MaxPlayersPerTeam: 5,
-			BaseBid:           100,
-			MaxBid:            1000,
 		}},
 	}
 	team := &auction.TournamentTeamRegistration{ID: "team1", TournamentID: "t1", TournamentEventID: "te1"}
@@ -59,7 +60,7 @@ func TestService_PlaceBid_ReservesForMinimumRoster(t *testing.T) {
 		Return(&auction.Wallet{ID: "w1", Balance: 150}, nil)
 	lotRepo.EXPECT().ListByAuction(gomock.Any(), "auc1").Return(lots, nil)
 
-	_, err := svc.PlaceBid(ctx, PlaceBidInput{AuctionPlayerID: "lot1", TeamRegistrationID: "team1", Amount: 100})
+	_, _, err := svc.PlaceBid(ctx, PlaceBidInput{AuctionPlayerID: "lot1", TeamRegistrationID: "team1", Amount: 100})
 	if err == nil {
 		t.Fatalf("expected error")
 	}
@@ -195,8 +196,9 @@ func TestService_CreateLot_ScreeningGenderAndAge(t *testing.T) {
 		ID:                "auc1",
 		TournamentID:      "t1",
 		TournamentEventID: "te1",
+		Rules:             auction.AuctionRules{MinBidAmount: 100},
 	}
-	te := &auction.TournamentEvent{ID: "te1", Attrs: auction.EventAttrs{TeamEventRules: &auction.TeamEventRules{IsAuction: true, BaseBid: 100}}}
+	te := &auction.TournamentEvent{ID: "te1", Attrs: auction.EventAttrs{TeamEventRules: &auction.TeamEventRules{IsAuction: true}}}
 
 	reg := &auction.TournamentPlayerRegistration{
 		ID:                "reg1",
@@ -265,15 +267,16 @@ func TestLotService_CreateLotsByQuery_ReactivatesUnsoldLots(t *testing.T) {
 		NowMs:               func() int64 { return 123 },
 	})
 
-	auc := &auction.Auction{ID: "auc1", TournamentID: "t1", TournamentEventID: "te1"}
+	auc := &auction.Auction{
+		ID: "auc1", TournamentID: "t1", TournamentEventID: "te1",
+		Rules: auction.AuctionRules{MinBidAmount: 1500},
+	}
 	te := &auction.TournamentEvent{
 		ID: "te1",
 		Attrs: auction.EventAttrs{TeamEventRules: &auction.TeamEventRules{
 			IsAuction:         true,
 			MinPlayersPerTeam: 4,
 			MaxPlayersPerTeam: 4,
-			BaseBid:           1500,
-			MaxBid:            4000,
 		}},
 	}
 

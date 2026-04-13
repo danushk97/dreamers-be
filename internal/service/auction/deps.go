@@ -5,8 +5,9 @@ import "github.com/dreamers-be/internal/domain/auction"
 // Deps groups the repositories used by auction services.
 // Individual services depend on the subset they actually need.
 type Deps struct {
-	AuctionRepo       auction.AuctionRepository
-	AuctionPlayerRepo auction.AuctionPlayerRepository
+	AuctionRepo         auction.AuctionRepository
+	AuctionPlayerRepo   auction.AuctionPlayerRepository
+	TournamentRepo      auction.TournamentRepository
 	TournamentEventRepo auction.TournamentEventRepository
 	RegistrationRepo  auction.RegistrationRepository
 	TeamRepo          auction.TeamRepository

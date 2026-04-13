@@ -87,6 +87,7 @@ func main() {
 	log.Printf("Use cases and handlers initialized")
 
 	// Auction core flow wiring (MVP)
+	tournamentRepo := postgres.NewTournamentRepository(db)
 	tournamentEventRepo := postgres.NewTournamentEventRepository(db)
 	auctionRepo := postgres.NewAuctionRepository(db)
 	teamRepo := postgres.NewTeamRepository(db)
@@ -98,6 +99,7 @@ func main() {
 	deps := auctionservice.Deps{
 		AuctionRepo:         auctionRepo,
 		AuctionPlayerRepo:   auctionPlayerRepo,
+		TournamentRepo:      tournamentRepo,
 		TournamentEventRepo: tournamentEventRepo,
 		RegistrationRepo:    registrationRepo,
 		TeamRepo:            teamRepo,
@@ -129,6 +131,7 @@ func main() {
 		api.POST("/players", ph.Create)
 		// Auction core flow
 		api.POST("/auctions", auctionHandler.CreateAuction)
+		api.GET("/tournaments/:tournamentId", auctionHandler.GetTournament)
 		api.GET("/tournaments/:tournamentId/events/:tournamentEventId/teams", auctionHandler.ListRegisteredTeams)
 		api.GET("/auctions/:auctionId", auctionHandler.GetAuction)
 		api.GET("/auctions/:auctionId/relay/stream", auctionHandler.StreamAuctionRelay)

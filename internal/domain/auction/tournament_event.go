@@ -16,11 +16,9 @@ type EventAttrs struct {
 }
 
 // TeamEventRules applies when the event is a team-based competition with optional auction.
+// Bid amounts are configured per auction (auctions.rules), not on the event.
 type TeamEventRules struct {
 	MinPlayersPerTeam int
 	MaxPlayersPerTeam int
 	IsAuction         bool
-	// Amounts are in the smallest currency unit (e.g. paise) to avoid float drift.
-	BaseBid int64
-	MaxBid  int64
 }

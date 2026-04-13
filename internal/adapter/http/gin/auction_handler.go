@@ -3,6 +3,7 @@ package gin
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"sort"
@@ -78,6 +79,12 @@ func (r FilterPresetRequest) toDomain(nowMs int64) auction.FilterPreset {
 	}
 }
 
+// AuctionRulesRequest matches auctions.rules JSON keys (MinBidAmount, MaxBidAmount), paise.
+type AuctionRulesRequest struct {
+	MinBidAmount int64 `json:"MinBidAmount"`
+	MaxBidAmount int64 `json:"MaxBidAmount"`
+}
+
 type CreateAuctionRequest struct {
 	TournamentID      string                `json:"tournamentId"`
 	TournamentEventID string                `json:"tournamentEventId"`
@@ -85,6 +92,7 @@ type CreateAuctionRequest struct {
 	// RunMode is "test" (default, allows POST .../reset) or "live".
 	RunMode           string                `json:"runMode"`
 	FilterPresets     []FilterPresetRequest `json:"filterPresets"`
+	Rules             AuctionRulesRequest   `json:"rules"`
 }
 
 type ListEligibleRequest struct {
@@ -107,7 +115,7 @@ type CreateLotsBulkRequest struct {
 	Filter   RegistrationFilterRequest `json:"filter"`
 
 	StartLotNumber int   `json:"startLotNumber"`
-	BasePrice      int64 `json:"basePrice"` // 0 = use event base bid
+	BasePrice      int64 `json:"basePrice"` // 0 = use auction rules MinBidAmount
 	Limit           int   `json:"limit"`     // 0 = no limit
 }
 
@@ -240,6 +248,11 @@ type RelaySnapshotResponse struct {
 	LeadingTeamRegistrationID string                               `json:"leadingTeamRegistrationId,omitempty"`
 	BidCount                  int                                  `json:"bidCount"`
 	Teams                     []TournamentTeamRegistrationResponse `json:"teams"`
+	TournamentName            string                               `json:"tournamentName,omitempty"`
+	TournamentLogoURL         string                               `json:"tournamentLogoUrl,omitempty"`
+	TournamentSponsors        []auction.TournamentSponsorGroup     `json:"tournamentSponsors,omitempty"`
+	// TeamBidLimits: per-team max single bid now (derived) + configured cap; updated each relay tick.
+	TeamBidLimits []auctionservice.RelayTeamBidLimit `json:"teamBidLimits,omitempty"`
 }
 
 func pickFocusLotForRelay(lots []*auction.AuctionPlayer) *auction.AuctionPlayer {
@@ -278,6 +291,14 @@ func (h *AuctionHandler) buildRelaySnapshot(ctx context.Context, auctionID strin
 	out.Mode = auc.Mode
 	out.RunMode = auc.RunMode
 
+	if tour, terr := h.auctionSvc.GetTournament(ctx, auc.TournamentID); terr == nil && tour != nil {
+		out.TournamentName = tour.Name
+		out.TournamentLogoURL = tour.LogoURL
+		if len(tour.Sponsors) > 0 {
+			out.TournamentSponsors = tour.Sponsors
+		}
+	}
+
 	regTeams, err := h.auctionSvc.ListRegisteredTeams(ctx, auc.TournamentID, auc.TournamentEventID)
 	if err != nil {
 		return out, err
@@ -296,6 +317,10 @@ func (h *AuctionHandler) buildRelaySnapshot(ctx context.Context, auctionID strin
 	if err != nil {
 		return out, err
 	}
+	if limits, limErr := h.bidSvc.TeamRelayBidLimits(ctx, auc, lots); limErr == nil {
+		out.TeamBidLimits = limits
+	}
+
 	var focus *auction.AuctionPlayer
 	if id := strings.TrimSpace(auc.DisplayAuctionPlayerID); id != "" {
 		for _, l := range lots {
@@ -461,10 +486,14 @@ type WalletResponse struct {
 	ID                string `json:"id"`
 	TournamentID      string `json:"tournamentId"`
 	TournamentEventID string `json:"tournamentEventId"`
-	TeamID           string `json:"teamId"`
-	Balance          int64  `json:"balance"`
-	CreatedAt        int64  `json:"createdAt"`
-	UpdatedAt        int64  `json:"updatedAt"`
+	TeamID            string `json:"teamId"`
+	Balance           int64  `json:"balance"`
+	MaxBidAmount      int64  `json:"maxBidAmount"`
+	// Set when GET …/wallets includes auctionId (same semantics as POST bid bidHints).
+	DerivedMaxBidAmount int64 `json:"derivedMaxBidAmount,omitempty"`
+	MinBidAmount        int64 `json:"minBidAmount,omitempty"`
+	CreatedAt           int64  `json:"createdAt"`
+	UpdatedAt           int64  `json:"updatedAt"`
 }
 
 func toWalletResponse(w *auction.Wallet) WalletResponse {
@@ -473,7 +502,7 @@ func toWalletResponse(w *auction.Wallet) WalletResponse {
 	}
 	return WalletResponse{
 		ID: w.ID, TournamentID: w.TournamentID, TournamentEventID: w.TournamentEventID, TeamID: w.TeamID,
-		Balance: w.Balance, CreatedAt: w.CreatedAt, UpdatedAt: w.UpdatedAt,
+		Balance: w.Balance, MaxBidAmount: w.MaxBidAmount, CreatedAt: w.CreatedAt, UpdatedAt: w.UpdatedAt,
 	}
 }
 
@@ -572,6 +601,25 @@ func (h *AuctionHandler) PatchAuction(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"auction": auc})
 }
 
+// GET /v1/tournaments/:tournamentId — tournament metadata (logo, sponsors JSON array).
+func (h *AuctionHandler) GetTournament(c *gin.Context) {
+	id := strings.TrimSpace(c.Param("tournamentId"))
+	t, err := h.auctionSvc.GetTournament(c.Request.Context(), id)
+	if err != nil {
+		if auctionservice.IsValidationError(err) {
+			if strings.Contains(err.Error(), "tournament not found") {
+				Error(c, http.StatusNotFound, "Not Found", err.Error())
+				return
+			}
+			Error(c, http.StatusBadRequest, "Validation Error", err.Error())
+			return
+		}
+		Error(c, http.StatusInternalServerError, "Internal Server Error", err.Error())
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"tournament": t})
+}
+
 // GET /v1/tournaments/:tournamentId/events/:tournamentEventId/teams
 func (h *AuctionHandler) ListRegisteredTeams(c *gin.Context) {
 	tournamentID := strings.TrimSpace(c.Param("tournamentId"))
@@ -630,7 +678,11 @@ func (h *AuctionHandler) CreateAuction(c *gin.Context) {
 		})
 	}
 
-	auc, err := h.auctionSvc.CreateAuction(c.Request.Context(), req.TournamentID, req.TournamentEventID, mode, runMode, filterPresets)
+	rules := auction.AuctionRules{
+		MinBidAmount: req.Rules.MinBidAmount,
+		MaxBidAmount: req.Rules.MaxBidAmount,
+	}
+	auc, err := h.auctionSvc.CreateAuction(c.Request.Context(), req.TournamentID, req.TournamentEventID, mode, runMode, filterPresets, rules)
 	if err != nil {
 		if auctionservice.IsValidationError(err) {
 			Error(c, http.StatusBadRequest, "Validation Error", err.Error())
@@ -645,7 +697,8 @@ func (h *AuctionHandler) CreateAuction(c *gin.Context) {
 		"tournamentEventId": auc.TournamentEventID,
 		"mode":              auc.Mode,
 		"runMode":           auc.RunMode,
-		"filterPresets":    auc.FilterPresets,
+		"filterPresets":     auc.FilterPresets,
+		"rules":             auc.Rules,
 		"createdAt":         auc.CreatedAt,
 	}})
 }
@@ -833,12 +886,25 @@ func (h *AuctionHandler) PlaceBid(c *gin.Context) {
 		Error(c, http.StatusBadRequest, "Bad Request", "invalid request body")
 		return
 	}
-	bid, err := h.bidSvc.PlaceBid(c.Request.Context(), auctionservice.PlaceBidInput{
+	bid, bidHints, err := h.bidSvc.PlaceBid(c.Request.Context(), auctionservice.PlaceBidInput{
 		AuctionPlayerID:    auctionPlayerID,
 		TeamRegistrationID: req.TeamRegistrationID,
 		Amount:             req.Amount,
 	})
 	if err != nil {
+		var ve *auctionservice.ValidationError
+		if errors.As(err, &ve) && ve.Hints != nil {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error": gin.H{
+					"type":   "https://api.dreamers.be/errors/400",
+					"title":  "Validation Error",
+					"status": http.StatusBadRequest,
+					"detail": ve.Err.Error(),
+				},
+				"bidHints": ve.Hints,
+			})
+			return
+		}
 		if auctionservice.IsValidationError(err) {
 			Error(c, http.StatusBadRequest, "Validation Error", err.Error())
 			return
@@ -846,7 +912,7 @@ func (h *AuctionHandler) PlaceBid(c *gin.Context) {
 		Error(c, http.StatusInternalServerError, "Internal Server Error", err.Error())
 		return
 	}
-	c.JSON(http.StatusCreated, gin.H{"bid": toBidResponse(bid)})
+	c.JSON(http.StatusCreated, gin.H{"bid": toBidResponse(bid), "bidHints": bidHints})
 }
 
 // GET /api/v1/auction-players/:auctionPlayerId/bids
@@ -915,11 +981,13 @@ func (h *AuctionHandler) RevertSale(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"ok": true})
 }
 
-// GET /api/v1/wallets?teamRegistrationId=&tournamentId=&tournamentEventId=
+// GET /api/v1/wallets?teamRegistrationId=&tournamentId=&tournamentEventId=&auctionId=
+// Optional auctionId: includes derivedMaxBidAmount (max single bid now given balance + min roster at min bid, capped by auction/team max).
 func (h *AuctionHandler) GetWallet(c *gin.Context) {
 	teamRegistrationID := c.Query("teamRegistrationId")
 	tournamentID := c.Query("tournamentId")
 	tournamentEventID := c.Query("tournamentEventId")
+	auctionID := strings.TrimSpace(c.Query("auctionId"))
 
 	if teamRegistrationID == "" || tournamentID == "" || tournamentEventID == "" {
 		Error(c, http.StatusBadRequest, "Validation Error", "teamRegistrationId, tournamentId, tournamentEventId are required")
@@ -935,7 +1003,18 @@ func (h *AuctionHandler) GetWallet(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "wallet not found"})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"wallet": toWalletResponse(w)})
+	wr := toWalletResponse(w)
+	if auctionID != "" {
+		if auc, aerr := h.auctionSvc.GetAuction(c.Request.Context(), auctionID); aerr == nil && auc != nil {
+			if auc.TournamentID == w.TournamentID && auc.TournamentEventID == w.TournamentEventID {
+				wr.MinBidAmount = auc.Rules.MinBidAmount
+			}
+		}
+		if d, derr := h.bidSvc.DerivedMaxBidForTeam(c.Request.Context(), auctionID, teamRegistrationID, w); derr == nil {
+			wr.DerivedMaxBidAmount = d
+		}
+	}
+	c.JSON(http.StatusOK, gin.H{"wallet": wr})
 }
 
 // helper: not currently used but kept for future URL query parsing

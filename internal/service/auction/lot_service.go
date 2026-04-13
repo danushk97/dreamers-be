@@ -53,8 +53,8 @@ func (s *LotService) CreateLot(ctx context.Context, in CreateLotInput) (*auction
 	if err != nil {
 		return nil, fmt.Errorf("get tournament event: %w", err)
 	}
-	if te == nil || te.Attrs.TeamEventRules == nil {
-		return nil, &ValidationError{Err: fmt.Errorf("tournament event rules not found")}
+	if te == nil || te.Attrs.TeamEventRules == nil || !te.Attrs.TeamEventRules.IsAuction {
+		return nil, &ValidationError{Err: fmt.Errorf("tournament event is not configured for auction")}
 	}
 
 	reg, err := s.regs.GetByID(ctx, in.TournamentPlayerRegistrationID)
@@ -70,7 +70,7 @@ func (s *LotService) CreateLot(ctx context.Context, in CreateLotInput) (*auction
 
 	base := in.BasePrice
 	if base <= 0 {
-		base = te.Attrs.TeamEventRules.BaseBid
+		base = a.Rules.MinBidAmount
 	}
 	ap := &auction.AuctionPlayer{
 		ID:                             uuid.New().String(),
@@ -108,7 +108,7 @@ type CreateLotsBulkInput struct {
 	AuctionID       string
 	RegistrationIDs []string
 	StartLotNumber  int
-	BasePrice       int64 // 0 = event base bid
+	BasePrice       int64 // 0 = auction rules MinBidAmount
 }
 
 // CreateLotsByQueryInput creates lots by fetching eligible registrations server-side.
@@ -119,7 +119,7 @@ type CreateLotsByQueryInput struct {
 	TournamentEventID string
 	Filter             auction.RegistrationFilter
 	StartLotNumber    int
-	BasePrice         int64 // 0 = event base bid
+	BasePrice         int64 // 0 = auction rules MinBidAmount
 	Limit              int   // 0 = no limit
 }
 
@@ -142,12 +142,12 @@ func (s *LotService) CreateLotsBulk(ctx context.Context, in CreateLotsBulkInput)
 	if err != nil {
 		return nil, fmt.Errorf("get tournament event: %w", err)
 	}
-	if te == nil || te.Attrs.TeamEventRules == nil {
-		return nil, &ValidationError{Err: fmt.Errorf("tournament event rules not found")}
+	if te == nil || te.Attrs.TeamEventRules == nil || !te.Attrs.TeamEventRules.IsAuction {
+		return nil, &ValidationError{Err: fmt.Errorf("tournament event is not configured for auction")}
 	}
 	base := in.BasePrice
 	if base <= 0 {
-		base = te.Attrs.TeamEventRules.BaseBid
+		base = a.Rules.MinBidAmount
 	}
 	if in.StartLotNumber <= 0 {
 		in.StartLotNumber = 1
@@ -249,13 +249,13 @@ func (s *LotService) CreateLotsByQuery(ctx context.Context, in CreateLotsByQuery
 	if err != nil {
 		return nil, fmt.Errorf("get tournament event: %w", err)
 	}
-	if te == nil || te.Attrs.TeamEventRules == nil {
-		return nil, &ValidationError{Err: fmt.Errorf("tournament event rules not found")}
+	if te == nil || te.Attrs.TeamEventRules == nil || !te.Attrs.TeamEventRules.IsAuction {
+		return nil, &ValidationError{Err: fmt.Errorf("tournament event is not configured for auction")}
 	}
 
 	base := in.BasePrice
 	if base <= 0 {
-		base = te.Attrs.TeamEventRules.BaseBid
+		base = a.Rules.MinBidAmount
 	}
 	startLot := in.StartLotNumber
 	if startLot <= 0 {

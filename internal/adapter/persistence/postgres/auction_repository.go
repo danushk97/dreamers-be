@@ -91,15 +91,19 @@ func (r *AuctionRepository) Create(ctx context.Context, a *auction.Auction) erro
 	if err != nil {
 		return err
 	}
+	rulesRaw, err := json.Marshal(a.Rules)
+	if err != nil {
+		return err
+	}
 	runMode := string(a.RunMode)
 	if runMode == "" {
 		runMode = string(auction.AuctionRunModeTest)
 	}
 	_, err = r.db.ExecContext(
 		ctx,
-		`INSERT INTO auctions (id, tournament_id, tournament_event_id, mode, run_mode, filter_presets, display_auction_player_id, created_at)
-		 VALUES ($1, $2, $3, $4, $5, $6, NULL, $7)`,
-		a.ID, a.TournamentID, a.TournamentEventID, string(a.Mode), runMode, filterRaw, a.CreatedAt,
+		`INSERT INTO auctions (id, tournament_id, tournament_event_id, mode, run_mode, filter_presets, rules, display_auction_player_id, created_at)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, NULL, $8)`,
+		a.ID, a.TournamentID, a.TournamentEventID, string(a.Mode), runMode, filterRaw, rulesRaw, a.CreatedAt,
 	)
 	return err
 }
@@ -107,15 +111,16 @@ func (r *AuctionRepository) Create(ctx context.Context, a *auction.Auction) erro
 func (r *AuctionRepository) GetByID(ctx context.Context, id string) (*auction.Auction, error) {
 	var a auction.Auction
 	var filterRaw []byte
+	var rulesRaw []byte
 	var modeStr string
 	var runModeStr string
 	var displayLotID sql.NullString
 	err := r.db.QueryRowContext(
 		ctx,
-		`SELECT id, tournament_id, tournament_event_id, mode, run_mode, filter_presets, display_auction_player_id, created_at
+		`SELECT id, tournament_id, tournament_event_id, mode, run_mode, filter_presets, rules, display_auction_player_id, created_at
 		 FROM auctions WHERE id = $1`,
 		id,
-	).Scan(&a.ID, &a.TournamentID, &a.TournamentEventID, &modeStr, &runModeStr, &filterRaw, &displayLotID, &a.CreatedAt)
+	).Scan(&a.ID, &a.TournamentID, &a.TournamentEventID, &modeStr, &runModeStr, &filterRaw, &rulesRaw, &displayLotID, &a.CreatedAt)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -133,6 +138,14 @@ func (r *AuctionRepository) GetByID(ctx context.Context, id string) (*auction.Au
 		if err := json.Unmarshal(filterRaw, &a.FilterPresets); err != nil {
 			return nil, err
 		}
+	}
+	if len(rulesRaw) > 0 && string(rulesRaw) != "null" {
+		if err := json.Unmarshal(rulesRaw, &a.Rules); err != nil {
+			return nil, err
+		}
+	}
+	if a.Rules.MinBidAmount <= 0 && a.Rules.MaxBidAmount <= 0 {
+		a.Rules = auction.ApplyDefaultAuctionRules(a.Rules)
 	}
 	if displayLotID.Valid {
 		a.DisplayAuctionPlayerID = displayLotID.String
@@ -687,11 +700,11 @@ func (r *WalletRepository) GetByTournamentEventTeam(ctx context.Context, tournam
 	var w auction.Wallet
 	err := r.db.QueryRowContext(
 		ctx,
-		`SELECT id, tournament_id, tournament_event_id, team_id, balance, created_at, updated_at
+		`SELECT id, tournament_id, tournament_event_id, team_id, balance, max_bid_amount, created_at, updated_at
 		 FROM wallets
 		 WHERE tournament_id = $1 AND tournament_event_id = $2 AND team_id = $3`,
 		tournamentID, tournamentEventID, teamRegistrationID,
-	).Scan(&w.ID, &w.TournamentID, &w.TournamentEventID, &w.TeamID, &w.Balance, &w.CreatedAt, &w.UpdatedAt)
+	).Scan(&w.ID, &w.TournamentID, &w.TournamentEventID, &w.TeamID, &w.Balance, &w.MaxBidAmount, &w.CreatedAt, &w.UpdatedAt)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}

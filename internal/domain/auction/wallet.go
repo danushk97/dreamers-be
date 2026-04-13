@@ -11,11 +11,13 @@ const (
 // Wallet is a team's spendable balance for a tournament/event.
 // Amounts are in the smallest currency unit.
 type Wallet struct {
-	ID           string
+	ID                string
 	TournamentID      string
 	TournamentEventID string
-	TeamID       string // TournamentTeamRegistration id
-	Balance      int64
+	TeamID            string // TournamentTeamRegistration id
+	Balance           int64
+	// MaxBidAmount caps a single bid for this team (paisa). 0 = unset (auction rules + balance still apply).
+	MaxBidAmount int64
 	CreatedAt    int64 // unix milliseconds
 	UpdatedAt    int64 // unix milliseconds
 }

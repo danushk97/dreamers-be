@@ -28,7 +28,9 @@ type Auction struct {
 	DisplayAuctionPlayerID string `json:"displayAuctionPlayerId,omitempty"`
 	// FilterPresets is a saved list of category filters (persist as JSON in DB).
 	FilterPresets []FilterPreset
-	CreatedAt     int64 // unix milliseconds
+	// Rules is per-auction min/max single bid (paisa); JSON column auctions.rules.
+	Rules     AuctionRules `json:"rules"`
+	CreatedAt int64        // unix milliseconds
 }
 
 // FilterPreset is a named category filter that the UI can reuse.

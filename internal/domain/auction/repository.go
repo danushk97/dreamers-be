@@ -70,4 +70,3 @@ type WalletRepository interface {
 	UpdateBalance(ctx context.Context, walletID string, newBalance int64, updatedAtMs int64) error
 	CreateTransaction(ctx context.Context, tx *WalletTransaction) error
 }
-

@@ -12,6 +12,7 @@ import (
 
 type AuctionService struct {
 	auctions         auction.AuctionRepository
+	tournaments      auction.TournamentRepository
 	tournamentEvents auction.TournamentEventRepository
 	teams            auction.TeamRepository
 	nowMs            func() int64
@@ -20,6 +21,7 @@ type AuctionService struct {
 func NewAuctionService(d Deps) *AuctionService {
 	return &AuctionService{
 		auctions:         d.AuctionRepo,
+		tournaments:      d.TournamentRepo,
 		tournamentEvents: d.TournamentEventRepo,
 		teams:            d.TeamRepo,
 		nowMs:            d.now(),
@@ -29,7 +31,8 @@ func NewAuctionService(d Deps) *AuctionService {
 // CreateAuction creates an auction session for a tournament event.
 // filterPresets are saved on the auction (typically persisted as JSON) for UI convenience.
 // runMode is "test" (default, allows reset) or "live".
-func (s *AuctionService) CreateAuction(ctx context.Context, tournamentID, tournamentEventID string, mode auction.AuctionMode, runMode auction.AuctionRunMode, filterPresets []auction.FilterPreset) (*auction.Auction, error) {
+// rules sets min/max single-bid amounts (paisa) on the auction row.
+func (s *AuctionService) CreateAuction(ctx context.Context, tournamentID, tournamentEventID string, mode auction.AuctionMode, runMode auction.AuctionRunMode, filterPresets []auction.FilterPreset, rules auction.AuctionRules) (*auction.Auction, error) {
 	if tournamentID == "" || tournamentEventID == "" {
 		return nil, &ValidationError{Err: fmt.Errorf("tournament_id and tournament_event_id are required")}
 	}
@@ -52,6 +55,10 @@ func (s *AuctionService) CreateAuction(ctx context.Context, tournamentID, tourna
 	if te.Attrs.TeamEventRules == nil || !te.Attrs.TeamEventRules.IsAuction {
 		return nil, &ValidationError{Err: fmt.Errorf("tournament event is not configured for auction")}
 	}
+	rules = auction.ApplyDefaultAuctionRules(rules)
+	if err := rules.Validate(); err != nil {
+		return nil, &ValidationError{Err: err}
+	}
 
 	a := &auction.Auction{
 		ID:                uuid.New().String(),
@@ -60,6 +67,7 @@ func (s *AuctionService) CreateAuction(ctx context.Context, tournamentID, tourna
 		Mode:              mode,
 		RunMode:           runMode,
 		FilterPresets:     filterPresets,
+		Rules:             rules,
 		CreatedAt:         s.nowMs(),
 	}
 	if err := s.auctions.Create(ctx, a); err != nil {
@@ -105,6 +113,24 @@ func (s *AuctionService) GetAuction(ctx context.Context, id string) (*auction.Au
 		return nil, &ValidationError{Err: fmt.Errorf("auction not found")}
 	}
 	return a, nil
+}
+
+// GetTournament loads a tournament by id (logo + sponsors JSON).
+func (s *AuctionService) GetTournament(ctx context.Context, id string) (*auction.Tournament, error) {
+	if id == "" {
+		return nil, &ValidationError{Err: fmt.Errorf("tournament_id is required")}
+	}
+	if s.tournaments == nil {
+		return nil, fmt.Errorf("tournament repository not configured")
+	}
+	t, err := s.tournaments.GetByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if t == nil {
+		return nil, &ValidationError{Err: fmt.Errorf("tournament not found")}
+	}
+	return t, nil
 }
 
 // ListRegisteredTeams returns all team registrations for a tournament event.

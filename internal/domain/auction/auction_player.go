@@ -17,7 +17,7 @@ type AuctionPlayer struct {
 	AuctionID                        string
 	TournamentPlayerRegistrationID   string
 	Status                           AuctionPlayerStatus
-	BasePrice                        int64 // smallest currency unit; often aligned with event BaseBid
+	BasePrice                        int64 // smallest currency unit; often aligned with auction rules MinBidAmount
 	FinalPrice                       int64 // set when sold; 0 if not sold
 	SoldToTeamRegistrationID         string // TournamentTeamRegistration id; empty if not sold
 	LotNumber                        int    // display order within auction
