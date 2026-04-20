@@ -14,8 +14,7 @@ VALUES (
     (EXTRACT(EPOCH FROM TIMESTAMPTZ '2026-05-07 23:59:59+00') * 1000)::BIGINT
 );
 
--- 2) Tournament event: Team Event — min/max 4 players, base 1500 INR, max 4000 INR (paise)
---    JSON keys match Go structs (no json tags): TeamEventRules, MinPlayersPerTeam, BaseBid, MaxBid, IsAuction
+-- 2) Tournament event: Team Event — min/max 4 players, auction flag (bid amounts live on auctions.rules)
 INSERT INTO tournament_events (id, tournament_id, name, attrs, parent_event_id)
 VALUES (
     'a0000002-0000-4000-8000-000000000001',
@@ -25,9 +24,7 @@ VALUES (
       "TeamEventRules": {
         "MinPlayersPerTeam": 4,
         "MaxPlayersPerTeam": 4,
-        "IsAuction": true,
-        "BaseBid": 150000,
-        "MaxBid": 400000
+        "IsAuction": true
       }
     }'::jsonb,
     NULL
@@ -39,8 +36,8 @@ VALUES
     ('a0000003-0000-4000-8000-000000000001', 'a0000001-0000-4000-8000-000000000001', 'a0000002-0000-4000-8000-000000000001', 'Smash Kings', ''),
     ('a0000004-0000-4000-8000-000000000001', 'a0000001-0000-4000-8000-000000000001', 'a0000002-0000-4000-8000-000000000001', 'Net Ninjas', '');
 
--- 4) Wallets: 10_000 INR = 1_000_000 paise per team
-INSERT INTO wallets (id, tournament_id, tournament_event_id, team_id, balance, created_at, updated_at)
+-- 4) Wallets: 10_000 INR = 1_000_000 paise per team; max_bid_amount 4000 INR = event MaxBid (400000 paise)
+INSERT INTO wallets (id, tournament_id, tournament_event_id, team_id, balance, max_bid_amount, created_at, updated_at)
 VALUES
     (
         'a0000005-0000-4000-8000-000000000001',
@@ -48,6 +45,7 @@ VALUES
         'a0000002-0000-4000-8000-000000000001',
         'a0000003-0000-4000-8000-000000000001',
         1000000,
+        400000,
         (EXTRACT(EPOCH FROM NOW()) * 1000)::BIGINT,
         (EXTRACT(EPOCH FROM NOW()) * 1000)::BIGINT
     ),
@@ -57,6 +55,7 @@ VALUES
         'a0000002-0000-4000-8000-000000000001',
         'a0000004-0000-4000-8000-000000000001',
         1000000,
+        400000,
         (EXTRACT(EPOCH FROM NOW()) * 1000)::BIGINT,
         (EXTRACT(EPOCH FROM NOW()) * 1000)::BIGINT
     );

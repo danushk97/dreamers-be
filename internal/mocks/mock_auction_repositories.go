@@ -440,18 +440,33 @@ func (mr *MockAuctionPlayerRepositoryMockRecorder) ListByAuction(ctx, auctionID 
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListByAuction", reflect.TypeOf((*MockAuctionPlayerRepository)(nil).ListByAuction), ctx, auctionID)
 }
 
-// MarkSold mocks base method.
-func (m *MockAuctionPlayerRepository) MarkSold(ctx context.Context, id string, finalPrice int64, soldToTeamRegistrationID string) error {
+// ListByAuctionWithPlayerFilter mocks base method.
+func (m *MockAuctionPlayerRepository) ListByAuctionWithPlayerFilter(ctx context.Context, auctionID string, f auction.RegistrationFilter, registrationSerial int) ([]*auction.AuctionPlayer, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "MarkSold", ctx, id, finalPrice, soldToTeamRegistrationID)
+	ret := m.ctrl.Call(m, "ListByAuctionWithPlayerFilter", ctx, auctionID, f, registrationSerial)
+	ret0, _ := ret[0].([]*auction.AuctionPlayer)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListByAuctionWithPlayerFilter indicates an expected call of ListByAuctionWithPlayerFilter.
+func (mr *MockAuctionPlayerRepositoryMockRecorder) ListByAuctionWithPlayerFilter(ctx, auctionID, f, registrationSerial interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListByAuctionWithPlayerFilter", reflect.TypeOf((*MockAuctionPlayerRepository)(nil).ListByAuctionWithPlayerFilter), ctx, auctionID, f, registrationSerial)
+}
+
+// MarkSold mocks base method.
+func (m *MockAuctionPlayerRepository) MarkSold(ctx context.Context, id string, finalPrice int64, soldToTeamRegistrationID string, notes auction.AuctionPlayerNotes) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "MarkSold", ctx, id, finalPrice, soldToTeamRegistrationID, notes)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // MarkSold indicates an expected call of MarkSold.
-func (mr *MockAuctionPlayerRepositoryMockRecorder) MarkSold(ctx, id, finalPrice, soldToTeamRegistrationID interface{}) *gomock.Call {
+func (mr *MockAuctionPlayerRepositoryMockRecorder) MarkSold(ctx, id, finalPrice, soldToTeamRegistrationID, notes interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MarkSold", reflect.TypeOf((*MockAuctionPlayerRepository)(nil).MarkSold), ctx, id, finalPrice, soldToTeamRegistrationID)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MarkSold", reflect.TypeOf((*MockAuctionPlayerRepository)(nil).MarkSold), ctx, id, finalPrice, soldToTeamRegistrationID, notes)
 }
 
 // UpdateStatus mocks base method.
@@ -532,6 +547,21 @@ func (m *MockBidRepository) GetHighestBid(ctx context.Context, auctionPlayerID s
 func (mr *MockBidRepositoryMockRecorder) GetHighestBid(ctx, auctionPlayerID interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetHighestBid", reflect.TypeOf((*MockBidRepository)(nil).GetHighestBid), ctx, auctionPlayerID)
+}
+
+// DeleteLatestByAuctionPlayer mocks base method.
+func (m *MockBidRepository) DeleteLatestByAuctionPlayer(ctx context.Context, auctionPlayerID string) (*auction.Bid, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteLatestByAuctionPlayer", ctx, auctionPlayerID)
+	ret0, _ := ret[0].(*auction.Bid)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// DeleteLatestByAuctionPlayer indicates an expected call of DeleteLatestByAuctionPlayer.
+func (mr *MockBidRepositoryMockRecorder) DeleteLatestByAuctionPlayer(ctx, auctionPlayerID interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteLatestByAuctionPlayer", reflect.TypeOf((*MockBidRepository)(nil).DeleteLatestByAuctionPlayer), ctx, auctionPlayerID)
 }
 
 // ListByAuctionPlayer mocks base method.

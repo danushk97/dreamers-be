@@ -10,28 +10,38 @@ import (
 )
 
 type SettlementService struct {
-	auctions auction.AuctionRepository
-	lots     auction.AuctionPlayerRepository
-	bids     auction.BidRepository
-	regs     auction.RegistrationRepository
-	wallets  auction.WalletRepository
-	nowMs    func() int64
+	auctions         auction.AuctionRepository
+	lots             auction.AuctionPlayerRepository
+	bids             auction.BidRepository
+	regs             auction.RegistrationRepository
+	teams            auction.TeamRepository
+	tournamentEvents auction.TournamentEventRepository
+	wallets          auction.WalletRepository
+	nowMs            func() int64
 }
 
 func NewSettlementService(d Deps) *SettlementService {
 	return &SettlementService{
-		auctions: d.AuctionRepo,
-		lots:     d.AuctionPlayerRepo,
-		bids:     d.BidRepo,
-		regs:     d.RegistrationRepo,
-		wallets:  d.WalletRepo,
-		nowMs:    d.now(),
+		auctions:         d.AuctionRepo,
+		lots:             d.AuctionPlayerRepo,
+		bids:             d.BidRepo,
+		regs:             d.RegistrationRepo,
+		teams:            d.TeamRepo,
+		tournamentEvents: d.TournamentEventRepo,
+		wallets:          d.WalletRepo,
+		nowMs:            d.now(),
 	}
 }
 
 type SellInput struct {
 	AuctionPlayerID string
 	ExpectedBidID   string // optional optimistic check; can be empty
+}
+
+type RetainInput struct {
+	AuctionPlayerID    string
+	TeamRegistrationID string
+	Amount             int64
 }
 
 // SellCurrentLot marks the lot as sold to the highest bid, assigns the registration to the team,
@@ -81,7 +91,7 @@ func (s *SettlementService) SellCurrentLot(ctx context.Context, in SellInput) er
 		return &ValidationError{Err: fmt.Errorf("insufficient wallet balance to settle")}
 	}
 
-	if err := s.lots.MarkSold(ctx, lot.ID, highest.Amount, highest.TeamRegistrationID); err != nil {
+	if err := s.lots.MarkSold(ctx, lot.ID, highest.Amount, highest.TeamRegistrationID, auction.AuctionPlayerNotes{}); err != nil {
 		return fmt.Errorf("mark sold: %w", err)
 	}
 	if err := s.regs.AssignToTeam(ctx, lot.TournamentPlayerRegistrationID, highest.TeamRegistrationID); err != nil {
@@ -101,6 +111,107 @@ func (s *SettlementService) SellCurrentLot(ctx context.Context, in SellInput) er
 		return fmt.Errorf("wallet debit tx: %w", err)
 	}
 	if err := s.wallets.UpdateBalance(ctx, w.ID, w.Balance-highest.Amount, now); err != nil {
+		return fmt.Errorf("update wallet balance: %w", err)
+	}
+	return nil
+}
+
+// RetainPlayer directly sells a lot to a team at a provided retain amount.
+func (s *SettlementService) RetainPlayer(ctx context.Context, in RetainInput) error {
+	if in.AuctionPlayerID == "" || in.TeamRegistrationID == "" {
+		return &ValidationError{Err: fmt.Errorf("auction_player_id and team_registration_id are required")}
+	}
+	if in.Amount <= 0 {
+		return &ValidationError{Err: fmt.Errorf("amount must be > 0")}
+	}
+	lot, err := s.lots.GetByID(ctx, in.AuctionPlayerID)
+	if err != nil {
+		return fmt.Errorf("get lot: %w", err)
+	}
+	if lot == nil {
+		return &ValidationError{Err: fmt.Errorf("lot not found")}
+	}
+	if lot.Status == auction.AuctionPlayerSold {
+		return &ValidationError{Err: fmt.Errorf("lot already sold")}
+	}
+	if lot.Status == auction.AuctionPlayerSkipped {
+		return &ValidationError{Err: fmt.Errorf("lot is skipped")}
+	}
+
+	a, err := s.auctions.GetByID(ctx, lot.AuctionID)
+	if err != nil {
+		return fmt.Errorf("get auction: %w", err)
+	}
+	if a == nil {
+		return &ValidationError{Err: fmt.Errorf("auction not found")}
+	}
+	if a.Rules.MaxRetainPlayerAmount > 0 && in.Amount > a.Rules.MaxRetainPlayerAmount {
+		return &ValidationError{Err: fmt.Errorf("retain amount exceeds MaxRetainPlayerAmount")}
+	}
+	team, err := s.teams.GetByID(ctx, in.TeamRegistrationID)
+	if err != nil {
+		return fmt.Errorf("get team: %w", err)
+	}
+	if team == nil {
+		return &ValidationError{Err: fmt.Errorf("team not found")}
+	}
+	if team.TournamentID != a.TournamentID || team.TournamentEventID != a.TournamentEventID {
+		return &ValidationError{Err: fmt.Errorf("team not in this tournament event")}
+	}
+	te, err := s.tournamentEvents.GetByID(ctx, a.TournamentEventID)
+	if err != nil {
+		return fmt.Errorf("get tournament event: %w", err)
+	}
+	if te == nil || te.Attrs.TeamEventRules == nil {
+		return &ValidationError{Err: fmt.Errorf("tournament event rules not found")}
+	}
+
+	w, err := s.wallets.GetByTournamentEventTeam(ctx, a.TournamentID, a.TournamentEventID, in.TeamRegistrationID)
+	if err != nil {
+		return fmt.Errorf("get wallet: %w", err)
+	}
+	if w == nil {
+		return &ValidationError{Err: fmt.Errorf("wallet not found")}
+	}
+	if w.Balance < in.Amount {
+		return &ValidationError{Err: fmt.Errorf("insufficient wallet balance to retain")}
+	}
+
+	soldCount, err := countSoldToTeam(ctx, s.lots, a.ID, in.TeamRegistrationID)
+	if err != nil {
+		return fmt.Errorf("count sold: %w", err)
+	}
+	if te.Attrs.TeamEventRules.MaxPlayersPerTeam > 0 && soldCount >= te.Attrs.TeamEventRules.MaxPlayersPerTeam {
+		return &ValidationError{Err: fmt.Errorf("team already reached max players")}
+	}
+
+	retainedCount, err := countRetainedToTeam(ctx, s.lots, a.ID, in.TeamRegistrationID)
+	if err != nil {
+		return fmt.Errorf("count retained: %w", err)
+	}
+	if a.Rules.MaxRetainPlayers > 0 && retainedCount >= a.Rules.MaxRetainPlayers {
+		return &ValidationError{Err: fmt.Errorf("team already reached max retained players")}
+	}
+
+	if err := s.lots.MarkSold(ctx, lot.ID, in.Amount, in.TeamRegistrationID, auction.AuctionPlayerNotes{IsRetained: true}); err != nil {
+		return fmt.Errorf("mark retained sold: %w", err)
+	}
+	if err := s.regs.AssignToTeam(ctx, lot.TournamentPlayerRegistrationID, in.TeamRegistrationID); err != nil {
+		return fmt.Errorf("assign to team: %w", err)
+	}
+	now := s.nowMs()
+	tx := &auction.WalletTransaction{
+		ID:          uuid.New().String(),
+		WalletID:    w.ID,
+		Amount:      in.Amount,
+		Type:        auction.WalletTxnDebit,
+		ReferenceID: lot.ID,
+		CreatedAt:   now,
+	}
+	if err := s.wallets.CreateTransaction(ctx, tx); err != nil {
+		return fmt.Errorf("wallet debit tx: %w", err)
+	}
+	if err := s.wallets.UpdateBalance(ctx, w.ID, w.Balance-in.Amount, now); err != nil {
 		return fmt.Errorf("update wallet balance: %w", err)
 	}
 	return nil
@@ -227,4 +338,3 @@ func (s *SettlementService) ResetTestAuction(ctx context.Context, auctionID stri
 	}
 	return nil
 }
-

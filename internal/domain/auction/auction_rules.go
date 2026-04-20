@@ -5,14 +5,19 @@ import "fmt"
 // AuctionRules holds bid limits for one auction (persisted as auctions.rules JSONB).
 // JSON keys match the persisted shape: MinBidAmount, MaxBidAmount (paisa).
 type AuctionRules struct {
-	MinBidAmount int64 `json:"MinBidAmount"`
-	MaxBidAmount int64 `json:"MaxBidAmount"`
+	MinBidAmount          int64 `json:"MinBidAmount"`
+	MaxBidAmount          int64 `json:"MaxBidAmount"`
+	MaxRetainPlayers      int   `json:"MaxRetainPlayers"`
+	MaxRetainPlayerAmount int64 `json:"MaxRetainPlayerAmount"`
 }
 
 // Validate checks internal consistency. Zero values mean "unset" for that bound.
 func (r AuctionRules) Validate() error {
 	if r.MinBidAmount < 0 || r.MaxBidAmount < 0 {
 		return fmt.Errorf("MinBidAmount and MaxBidAmount must be non-negative")
+	}
+	if r.MaxRetainPlayers < 0 || r.MaxRetainPlayerAmount < 0 {
+		return fmt.Errorf("MaxRetainPlayers and MaxRetainPlayerAmount must be non-negative")
 	}
 	if r.MaxBidAmount > 0 && r.MinBidAmount > r.MaxBidAmount {
 		return fmt.Errorf("MinBidAmount must be <= MaxBidAmount")

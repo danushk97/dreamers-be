@@ -424,17 +424,22 @@ func (r *AuctionPlayerRepository) Create(ctx context.Context, ap *auction.Auctio
 	if ap == nil {
 		return fmt.Errorf("auction player is nil")
 	}
-	_, err := r.db.ExecContext(
+	notesRaw, err := json.Marshal(ap.Notes)
+	if err != nil {
+		return err
+	}
+	_, err = r.db.ExecContext(
 		ctx,
 		`INSERT INTO auction_players (
 			id, auction_id, tournament_player_registration_id,
-			status, base_price, final_price, sold_to_team_registration_id,
+			status, notes, base_price, final_price, sold_to_team_registration_id,
 			lot_number, is_active, created_at
-		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
 		ap.ID,
 		ap.AuctionID,
 		ap.TournamentPlayerRegistrationID,
 		string(ap.Status),
+		notesRaw,
 		ap.BasePrice,
 		ap.FinalPrice,
 		nullIfEmpty(ap.SoldToTeamRegistrationID),
@@ -448,16 +453,17 @@ func (r *AuctionPlayerRepository) Create(ctx context.Context, ap *auction.Auctio
 func (r *AuctionPlayerRepository) GetByID(ctx context.Context, id string) (*auction.AuctionPlayer, error) {
 	var ap auction.AuctionPlayer
 	var soldTo sql.NullString
+	var notesRaw []byte
 	err := r.db.QueryRowContext(
 		ctx,
 		`SELECT id, auction_id, tournament_player_registration_id,
-			 status, base_price, final_price, sold_to_team_registration_id,
+			 status, notes, base_price, final_price, sold_to_team_registration_id,
 			 lot_number, is_active, created_at
 		 FROM auction_players WHERE id = $1`,
 		id,
 	).Scan(
 		&ap.ID, &ap.AuctionID, &ap.TournamentPlayerRegistrationID,
-		&ap.Status, &ap.BasePrice, &ap.FinalPrice, &soldTo,
+		&ap.Status, &notesRaw, &ap.BasePrice, &ap.FinalPrice, &soldTo,
 		&ap.LotNumber, &ap.IsActive, &ap.CreatedAt,
 	)
 	if err == sql.ErrNoRows {
@@ -469,6 +475,11 @@ func (r *AuctionPlayerRepository) GetByID(ctx context.Context, id string) (*auct
 	if soldTo.Valid {
 		ap.SoldToTeamRegistrationID = soldTo.String
 	}
+	if len(notesRaw) > 0 && string(notesRaw) != "null" {
+		if err := json.Unmarshal(notesRaw, &ap.Notes); err != nil {
+			return nil, err
+		}
+	}
 	return &ap, nil
 }
 
@@ -478,10 +489,11 @@ func (r *AuctionPlayerRepository) GetByAuctionAndRegistrationSerial(ctx context.
 	}
 	var ap auction.AuctionPlayer
 	var soldTo sql.NullString
+	var notesRaw []byte
 	err := r.db.QueryRowContext(
 		ctx,
 		`SELECT ap.id, ap.auction_id, ap.tournament_player_registration_id,
-				ap.status, ap.base_price, ap.final_price, ap.sold_to_team_registration_id,
+				ap.status, ap.notes, ap.base_price, ap.final_price, ap.sold_to_team_registration_id,
 				ap.lot_number, ap.is_active, ap.created_at
 		 FROM auction_players ap
 		 INNER JOIN tournament_player_registrations tr ON tr.id = ap.tournament_player_registration_id
@@ -493,7 +505,7 @@ func (r *AuctionPlayerRepository) GetByAuctionAndRegistrationSerial(ctx context.
 		auctionID, serialNumber,
 	).Scan(
 		&ap.ID, &ap.AuctionID, &ap.TournamentPlayerRegistrationID,
-		&ap.Status, &ap.BasePrice, &ap.FinalPrice, &soldTo,
+		&ap.Status, &notesRaw, &ap.BasePrice, &ap.FinalPrice, &soldTo,
 		&ap.LotNumber, &ap.IsActive, &ap.CreatedAt,
 	)
 	if err == sql.ErrNoRows {
@@ -505,6 +517,11 @@ func (r *AuctionPlayerRepository) GetByAuctionAndRegistrationSerial(ctx context.
 	if soldTo.Valid {
 		ap.SoldToTeamRegistrationID = soldTo.String
 	}
+	if len(notesRaw) > 0 && string(notesRaw) != "null" {
+		if err := json.Unmarshal(notesRaw, &ap.Notes); err != nil {
+			return nil, err
+		}
+	}
 	return &ap, nil
 }
 
@@ -512,7 +529,7 @@ func (r *AuctionPlayerRepository) ListByAuction(ctx context.Context, auctionID s
 	rows, err := r.db.QueryContext(
 		ctx,
 		`SELECT id, auction_id, tournament_player_registration_id,
-			 status, base_price, final_price, sold_to_team_registration_id,
+			 status, notes, base_price, final_price, sold_to_team_registration_id,
 			 lot_number, is_active, created_at
 		 FROM auction_players WHERE auction_id = $1
 		 ORDER BY lot_number ASC, created_at DESC`,
@@ -527,15 +544,106 @@ func (r *AuctionPlayerRepository) ListByAuction(ctx context.Context, auctionID s
 	for rows.Next() {
 		var ap auction.AuctionPlayer
 		var soldTo sql.NullString
+		var notesRaw []byte
 		if err := rows.Scan(
 			&ap.ID, &ap.AuctionID, &ap.TournamentPlayerRegistrationID,
-			&ap.Status, &ap.BasePrice, &ap.FinalPrice, &soldTo,
+			&ap.Status, &notesRaw, &ap.BasePrice, &ap.FinalPrice, &soldTo,
 			&ap.LotNumber, &ap.IsActive, &ap.CreatedAt,
 		); err != nil {
 			return nil, err
 		}
 		if soldTo.Valid {
 			ap.SoldToTeamRegistrationID = soldTo.String
+		}
+		if len(notesRaw) > 0 && string(notesRaw) != "null" {
+			if err := json.Unmarshal(notesRaw, &ap.Notes); err != nil {
+				return nil, err
+			}
+		}
+		out = append(out, &ap)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (r *AuctionPlayerRepository) ListByAuctionWithPlayerFilter(ctx context.Context, auctionID string, f auction.RegistrationFilter, registrationSerial int) ([]*auction.AuctionPlayer, error) {
+	if auctionID == "" {
+		return nil, fmt.Errorf("auction_id is required")
+	}
+	needPlayerJoin := f.Gender != "" || f.MinAgeYears > 0 || f.MaxAgeYears > 0
+	now := time.Now().UTC().Truncate(24 * time.Hour)
+	conds := []string{
+		"ap.auction_id = $1",
+		"tr.player_id IS NOT NULL",
+	}
+	args := []any{auctionID}
+	argIdx := 2
+	if registrationSerial > 0 {
+		conds = append(conds, "tr.serial_number = $"+fmt.Sprint(argIdx))
+		args = append(args, registrationSerial)
+		argIdx++
+	}
+	if f.Gender != "" {
+		conds = append(conds, "p.gender = $"+fmt.Sprint(argIdx))
+		args = append(args, f.Gender)
+		argIdx++
+	}
+	if f.MinAgeYears > 0 {
+		cutoff := now.AddDate(-f.MinAgeYears, 0, 0)
+		conds = append(conds, "p.date_of_birth <= $"+fmt.Sprint(argIdx)+"::date")
+		args = append(args, cutoff)
+		argIdx++
+	}
+	if f.MaxAgeYears > 0 {
+		cutoff := now.AddDate(-(f.MaxAgeYears + 1), 0, 0)
+		conds = append(conds, "p.date_of_birth >= $"+fmt.Sprint(argIdx)+"::date")
+		args = append(args, cutoff)
+		argIdx++
+	}
+	from := `FROM auction_players ap
+		 INNER JOIN auctions a ON a.id = ap.auction_id
+		 INNER JOIN tournament_player_registrations tr
+			   ON tr.id = ap.tournament_player_registration_id
+			  AND tr.tournament_id = a.tournament_id
+			  AND tr.tournament_event_id = a.tournament_event_id`
+	if needPlayerJoin {
+		from += `
+		 INNER JOIN players p ON p.id = tr.player_id`
+	}
+	query := `SELECT ap.id, ap.auction_id, ap.tournament_player_registration_id,
+			 ap.status, ap.notes, ap.base_price, ap.final_price, ap.sold_to_team_registration_id,
+			 ap.lot_number, ap.is_active, ap.created_at
+		` + from + `
+		 WHERE ` + joinConds(conds, " AND ") + `
+		 ORDER BY ap.lot_number ASC, ap.created_at DESC`
+
+	rows, err := r.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []*auction.AuctionPlayer
+	for rows.Next() {
+		var ap auction.AuctionPlayer
+		var soldTo sql.NullString
+		var notesRaw []byte
+		if err := rows.Scan(
+			&ap.ID, &ap.AuctionID, &ap.TournamentPlayerRegistrationID,
+			&ap.Status, &notesRaw, &ap.BasePrice, &ap.FinalPrice, &soldTo,
+			&ap.LotNumber, &ap.IsActive, &ap.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		if soldTo.Valid {
+			ap.SoldToTeamRegistrationID = soldTo.String
+		}
+		if len(notesRaw) > 0 && string(notesRaw) != "null" {
+			if err := json.Unmarshal(notesRaw, &ap.Notes); err != nil {
+				return nil, err
+			}
 		}
 		out = append(out, &ap)
 	}
@@ -556,16 +664,21 @@ func (r *AuctionPlayerRepository) UpdateStatus(ctx context.Context, id string, s
 	return err
 }
 
-func (r *AuctionPlayerRepository) MarkSold(ctx context.Context, id string, finalPrice int64, soldToTeamRegistrationID string) error {
-	_, err := r.db.ExecContext(
+func (r *AuctionPlayerRepository) MarkSold(ctx context.Context, id string, finalPrice int64, soldToTeamRegistrationID string, notes auction.AuctionPlayerNotes) error {
+	notesRaw, err := json.Marshal(notes)
+	if err != nil {
+		return err
+	}
+	_, err = r.db.ExecContext(
 		ctx,
 		`UPDATE auction_players
 		 SET status = $1,
-			 final_price = $2,
-			 sold_to_team_registration_id = $3,
+			 notes = $2,
+			 final_price = $3,
+			 sold_to_team_registration_id = $4,
 			 is_active = FALSE
-		 WHERE id = $4`,
-		string(auction.AuctionPlayerSold), finalPrice, soldToTeamRegistrationID, id,
+		 WHERE id = $5`,
+		string(auction.AuctionPlayerSold), notesRaw, finalPrice, soldToTeamRegistrationID, id,
 	)
 	return err
 }
@@ -575,6 +688,7 @@ func (r *AuctionPlayerRepository) ClearSale(ctx context.Context, id string) erro
 		ctx,
 		`UPDATE auction_players
 		 SET status = $1,
+			 notes = '{}'::jsonb,
 			 final_price = 0,
 			 sold_to_team_registration_id = NULL,
 			 is_active = FALSE
@@ -592,6 +706,7 @@ func (r *AuctionPlayerRepository) ResetAllLotsToPending(ctx context.Context, auc
 		ctx,
 		`UPDATE auction_players
 		 SET status = $1,
+			 notes = '{}'::jsonb,
 			 final_price = 0,
 			 sold_to_team_registration_id = NULL,
 			 is_active = FALSE
@@ -658,6 +773,29 @@ func (r *BidRepository) GetHighestBid(ctx context.Context, auctionPlayerID strin
 		 FROM bids WHERE auction_player_id = $1
 		 ORDER BY amount DESC, recorded_at DESC
 		 LIMIT 1`,
+		auctionPlayerID,
+	).Scan(&b.ID, &b.AuctionPlayerID, &b.TeamRegistrationID, &b.Amount, &b.RecordedAt)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &b, nil
+}
+
+func (r *BidRepository) DeleteLatestByAuctionPlayer(ctx context.Context, auctionPlayerID string) (*auction.Bid, error) {
+	var b auction.Bid
+	err := r.db.QueryRowContext(
+		ctx,
+		`DELETE FROM bids
+		 WHERE id = (
+			SELECT id FROM bids
+			WHERE auction_player_id = $1
+			ORDER BY recorded_at DESC, amount DESC, id DESC
+			LIMIT 1
+		 )
+		 RETURNING id, auction_player_id, team_registration_id, amount, recorded_at`,
 		auctionPlayerID,
 	).Scan(&b.ID, &b.AuctionPlayerID, &b.TeamRegistrationID, &b.Amount, &b.RecordedAt)
 	if err == sql.ErrNoRows {
@@ -748,4 +886,3 @@ func joinConds(conds []string, sep string) string {
 	}
 	return out
 }
-

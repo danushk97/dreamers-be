@@ -120,6 +120,9 @@ func main() {
 		auctionPlayerRepo,
 		bidRepo,
 		walletRepo,
+		registrationRepo,
+		playerRepo,
+		presigner,
 	)
 
 	r := gin.New()
@@ -143,7 +146,9 @@ func main() {
 		api.GET("/auctions/:auctionId/lots/by-registration-serial/:serialNumber", auctionHandler.GetLotByRegistrationSerial)
 		api.GET("/auctions/:auctionId/lots", auctionHandler.ListLotsByAuction)
 		api.POST("/auction-players/:auctionPlayerId/bids", auctionHandler.PlaceBid)
+		api.POST("/auction-players/:auctionPlayerId/bids/revert", auctionHandler.RevertLatestBid)
 		api.GET("/auction-players/:auctionPlayerId/bids", auctionHandler.ListBidsByAuctionPlayer)
+		api.POST("/auction-players/:auctionPlayerId/retain", auctionHandler.RetainPlayer)
 		api.POST("/auction-players/:auctionPlayerId/sell", auctionHandler.SellCurrentLot)
 		api.POST("/auction-players/:auctionPlayerId/unsold", auctionHandler.MarkUnsold)
 		api.POST("/auction-players/:auctionPlayerId/revert", auctionHandler.RevertSale)

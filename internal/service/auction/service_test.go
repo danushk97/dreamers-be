@@ -69,6 +69,64 @@ func TestService_PlaceBid_ReservesForMinimumRoster(t *testing.T) {
 	}
 }
 
+func TestService_RevertLatestBid_RemovesLatestBid(t *testing.T) {
+	ctx := context.Background()
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	auctionRepo := mocks.NewMockAuctionRepository(ctrl)
+	lotRepo := mocks.NewMockAuctionPlayerRepository(ctrl)
+	teamRepo := mocks.NewMockTeamRepository(ctrl)
+	tournamentEventRepo := mocks.NewMockTournamentEventRepository(ctrl)
+	bidRepo := mocks.NewMockBidRepository(ctrl)
+	walletRepo := mocks.NewMockWalletRepository(ctrl)
+
+	svc := NewBidService(Deps{
+		AuctionRepo:         auctionRepo,
+		AuctionPlayerRepo:   lotRepo,
+		TeamRepo:            teamRepo,
+		TournamentEventRepo: tournamentEventRepo,
+		BidRepo:             bidRepo,
+		WalletRepo:          walletRepo,
+		NowMs:               func() int64 { return 123 },
+	})
+
+	lot := &auction.AuctionPlayer{ID: "lot1", AuctionID: "auc1", Status: auction.AuctionPlayerActive, BasePrice: 100}
+	auc := &auction.Auction{
+		ID:                "auc1",
+		TournamentID:      "t1",
+		TournamentEventID: "te1",
+		Rules:             auction.AuctionRules{MinBidAmount: 100, MaxBidAmount: 500},
+	}
+	reverted := &auction.Bid{ID: "bid2", AuctionPlayerID: "lot1", TeamRegistrationID: "team1", Amount: 200}
+	wallet := &auction.Wallet{ID: "w1", TournamentID: "t1", TournamentEventID: "te1", TeamID: "team1", Balance: 1000, MaxBidAmount: 300}
+	te := &auction.TournamentEvent{
+		ID: "te1",
+		Attrs: auction.EventAttrs{TeamEventRules: &auction.TeamEventRules{
+			MinPlayersPerTeam: 1,
+			MaxPlayersPerTeam: 5,
+		}},
+	}
+
+	lotRepo.EXPECT().GetByID(gomock.Any(), "lot1").Return(lot, nil)
+	auctionRepo.EXPECT().GetByID(gomock.Any(), "auc1").Return(auc, nil).Times(2)
+	bidRepo.EXPECT().DeleteLatestByAuctionPlayer(gomock.Any(), "lot1").Return(reverted, nil)
+	walletRepo.EXPECT().GetByTournamentEventTeam(gomock.Any(), "t1", "te1", "team1").Return(wallet, nil)
+	tournamentEventRepo.EXPECT().GetByID(gomock.Any(), "te1").Return(te, nil)
+	lotRepo.EXPECT().ListByAuction(gomock.Any(), "auc1").Return([]*auction.AuctionPlayer{}, nil)
+
+	got, hints, err := svc.RevertLatestBid(ctx, RevertBidInput{AuctionPlayerID: "lot1"})
+	if err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+	if got == nil || got.ID != "bid2" {
+		t.Fatalf("unexpected reverted bid: %#v", got)
+	}
+	if hints.MinBidAmount != 100 {
+		t.Fatalf("unexpected min bid hint: %d", hints.MinBidAmount)
+	}
+}
+
 func TestService_SellCurrentLot_SettlesWalletAndAssigns(t *testing.T) {
 	ctx := context.Background()
 	ctrl := gomock.NewController(t)
@@ -104,7 +162,7 @@ func TestService_SellCurrentLot_SettlesWalletAndAssigns(t *testing.T) {
 	bidRepo.EXPECT().GetHighestBid(gomock.Any(), "lot1").Return(highest, nil)
 	walletRepo.EXPECT().GetByTournamentEventTeam(gomock.Any(), "t1", "te1", "team1").Return(w, nil)
 
-	lotRepo.EXPECT().MarkSold(gomock.Any(), "lot1", int64(300), "team1").Return(nil)
+	lotRepo.EXPECT().MarkSold(gomock.Any(), "lot1", int64(300), "team1", auction.AuctionPlayerNotes{}).Return(nil)
 	regRepo.EXPECT().AssignToTeam(gomock.Any(), "reg1", "team1").Return(nil)
 
 	walletRepo.EXPECT().CreateTransaction(gomock.Any(), gomock.Any()).DoAndReturn(
@@ -170,6 +228,117 @@ func TestService_MarkUnsold_SoldLot_RevertsSale(t *testing.T) {
 
 	if err := svc.MarkUnsold(ctx, "lot1"); err != nil {
 		t.Fatalf("unexpected err: %v", err)
+	}
+}
+
+func TestService_RetainPlayer_SettlesAsRetained(t *testing.T) {
+	ctx := context.Background()
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	auctionRepo := mocks.NewMockAuctionRepository(ctrl)
+	lotRepo := mocks.NewMockAuctionPlayerRepository(ctrl)
+	regRepo := mocks.NewMockRegistrationRepository(ctrl)
+	teamRepo := mocks.NewMockTeamRepository(ctrl)
+	tournamentEventRepo := mocks.NewMockTournamentEventRepository(ctrl)
+	bidRepo := mocks.NewMockBidRepository(ctrl)
+	walletRepo := mocks.NewMockWalletRepository(ctrl)
+
+	svc := NewSettlementService(Deps{
+		AuctionRepo:         auctionRepo,
+		AuctionPlayerRepo:   lotRepo,
+		TournamentEventRepo: tournamentEventRepo,
+		RegistrationRepo:    regRepo,
+		TeamRepo:            teamRepo,
+		BidRepo:             bidRepo,
+		WalletRepo:          walletRepo,
+		NowMs:               func() int64 { return 1111 },
+	})
+
+	lot := &auction.AuctionPlayer{
+		ID:                             "lot1",
+		AuctionID:                      "auc1",
+		TournamentPlayerRegistrationID: "reg1",
+		Status:                         auction.AuctionPlayerPending,
+	}
+	auc := &auction.Auction{
+		ID:                "auc1",
+		TournamentID:      "t1",
+		TournamentEventID: "te1",
+		Rules:             auction.AuctionRules{MinBidAmount: 100, MaxRetainPlayers: 2, MaxRetainPlayerAmount: 400},
+	}
+	te := &auction.TournamentEvent{
+		ID: "te1",
+		Attrs: auction.EventAttrs{TeamEventRules: &auction.TeamEventRules{
+			MinPlayersPerTeam: 3,
+			MaxPlayersPerTeam: 5,
+		}},
+	}
+	team := &auction.TournamentTeamRegistration{ID: "team1", TournamentID: "t1", TournamentEventID: "te1"}
+	w := &auction.Wallet{ID: "w1", Balance: 1000}
+
+	lotRepo.EXPECT().GetByID(gomock.Any(), "lot1").Return(lot, nil)
+	auctionRepo.EXPECT().GetByID(gomock.Any(), "auc1").Return(auc, nil)
+	teamRepo.EXPECT().GetByID(gomock.Any(), "team1").Return(team, nil)
+	tournamentEventRepo.EXPECT().GetByID(gomock.Any(), "te1").Return(te, nil)
+	walletRepo.EXPECT().GetByTournamentEventTeam(gomock.Any(), "t1", "te1", "team1").Return(w, nil)
+	lotRepo.EXPECT().ListByAuction(gomock.Any(), "auc1").Return([]*auction.AuctionPlayer{}, nil).Times(2)
+	lotRepo.EXPECT().MarkSold(gomock.Any(), "lot1", int64(300), "team1", auction.AuctionPlayerNotes{IsRetained: true}).Return(nil)
+	regRepo.EXPECT().AssignToTeam(gomock.Any(), "reg1", "team1").Return(nil)
+	walletRepo.EXPECT().CreateTransaction(gomock.Any(), gomock.Any()).Return(nil)
+	walletRepo.EXPECT().UpdateBalance(gomock.Any(), "w1", int64(700), int64(1111)).Return(nil)
+
+	if err := svc.RetainPlayer(ctx, RetainInput{
+		AuctionPlayerID:    "lot1",
+		TeamRegistrationID: "team1",
+		Amount:             300,
+	}); err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+}
+
+func TestService_RetainPlayer_EnforcesMaxRetainAmount(t *testing.T) {
+	ctx := context.Background()
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	auctionRepo := mocks.NewMockAuctionRepository(ctrl)
+	lotRepo := mocks.NewMockAuctionPlayerRepository(ctrl)
+	teamRepo := mocks.NewMockTeamRepository(ctrl)
+	tournamentEventRepo := mocks.NewMockTournamentEventRepository(ctrl)
+	regRepo := mocks.NewMockRegistrationRepository(ctrl)
+	bidRepo := mocks.NewMockBidRepository(ctrl)
+	walletRepo := mocks.NewMockWalletRepository(ctrl)
+
+	svc := NewSettlementService(Deps{
+		AuctionRepo:         auctionRepo,
+		AuctionPlayerRepo:   lotRepo,
+		TournamentEventRepo: tournamentEventRepo,
+		RegistrationRepo:    regRepo,
+		TeamRepo:            teamRepo,
+		BidRepo:             bidRepo,
+		WalletRepo:          walletRepo,
+		NowMs:               func() int64 { return 1 },
+	})
+
+	lot := &auction.AuctionPlayer{ID: "lot1", AuctionID: "auc1", Status: auction.AuctionPlayerPending}
+	auc := &auction.Auction{
+		ID:                "auc1",
+		TournamentID:      "t1",
+		TournamentEventID: "te1",
+		Rules:             auction.AuctionRules{MaxRetainPlayerAmount: 200},
+	}
+
+	lotRepo.EXPECT().GetByID(gomock.Any(), "lot1").Return(lot, nil)
+	auctionRepo.EXPECT().GetByID(gomock.Any(), "auc1").Return(auc, nil)
+
+	err := svc.RetainPlayer(ctx, RetainInput{
+		AuctionPlayerID:    "lot1",
+		TeamRegistrationID: "team1",
+		Amount:             300,
+	})
+	if err == nil || !IsValidationError(err) {
+		t.Fatalf("expected validation error, got: %v", err)
 	}
 }
 
@@ -311,13 +480,13 @@ func TestLotService_CreateLotsByQuery_ReactivatesUnsoldLots(t *testing.T) {
 	)
 
 	out, err := svc.CreateLotsByQuery(ctx, CreateLotsByQueryInput{
-		AuctionID:          "auc1",
+		AuctionID:         "auc1",
 		TournamentID:      "t1",
 		TournamentEventID: "te1",
 		Filter:            auction.RegistrationFilter{},
 		StartLotNumber:    1,
 		BasePrice:         0,
-		Limit:              0,
+		Limit:             0,
 	})
 	if err != nil {
 		t.Fatalf("unexpected err: %v", err)

@@ -37,6 +37,10 @@ type PlaceBidInput struct {
 	Amount             int64
 }
 
+type RevertBidInput struct {
+	AuctionPlayerID string
+}
+
 // PlaceBid records a bid with wallet + roster constraints.
 // Debit happens only when the player is sold; bid placement checks "feasibility if this bid wins".
 // On success, hints reflect limits for the next raise (balance unchanged until sale).
@@ -146,4 +150,59 @@ func (s *BidService) PlaceBid(ctx context.Context, in PlaceBidInput) (*auction.B
 		return nil, hints, fmt.Errorf("create bid: %w", err)
 	}
 	return b, hints, nil
+}
+
+// RevertLatestBid removes the latest bid recorded for a lot.
+func (s *BidService) RevertLatestBid(ctx context.Context, in RevertBidInput) (*auction.Bid, BidPlacementHints, error) {
+	if in.AuctionPlayerID == "" {
+		return nil, BidPlacementHints{}, &ValidationError{Err: fmt.Errorf("auction_player_id is required")}
+	}
+
+	lot, err := s.lots.GetByID(ctx, in.AuctionPlayerID)
+	if err != nil {
+		return nil, BidPlacementHints{}, fmt.Errorf("get lot: %w", err)
+	}
+	if lot == nil {
+		return nil, BidPlacementHints{}, &ValidationError{Err: fmt.Errorf("lot not found")}
+	}
+	if lot.Status == auction.AuctionPlayerSold {
+		return nil, BidPlacementHints{}, &ValidationError{Err: fmt.Errorf("cannot revert bid after lot is sold")}
+	}
+	if lot.Status == auction.AuctionPlayerSkipped {
+		return nil, BidPlacementHints{}, &ValidationError{Err: fmt.Errorf("lot is skipped")}
+	}
+
+	a, err := s.auctions.GetByID(ctx, lot.AuctionID)
+	if err != nil {
+		return nil, BidPlacementHints{}, fmt.Errorf("get auction: %w", err)
+	}
+	if a == nil {
+		return nil, BidPlacementHints{}, &ValidationError{Err: fmt.Errorf("auction not found")}
+	}
+
+	reverted, err := s.bids.DeleteLatestByAuctionPlayer(ctx, in.AuctionPlayerID)
+	if err != nil {
+		return nil, BidPlacementHints{}, fmt.Errorf("delete latest bid: %w", err)
+	}
+	if reverted == nil {
+		return nil, BidPlacementHints{}, &ValidationError{Err: fmt.Errorf("no bids found to revert")}
+	}
+
+	w, err := s.wallets.GetByTournamentEventTeam(ctx, a.TournamentID, a.TournamentEventID, reverted.TeamRegistrationID)
+	if err != nil {
+		return reverted, BidPlacementHints{}, fmt.Errorf("get wallet: %w", err)
+	}
+	if w == nil {
+		return reverted, BidPlacementHints{}, nil
+	}
+	derived, derr := s.DerivedMaxBidForTeam(ctx, a.ID, reverted.TeamRegistrationID, w)
+	if derr != nil {
+		return reverted, BidPlacementHints{}, nil
+	}
+	hints := BidPlacementHints{
+		DerivedMaxBidAmount: derived,
+		MinBidAmount:        max64(lot.BasePrice, a.Rules.MinBidAmount),
+		MaxBidAmount:        w.MaxBidAmount,
+	}
+	return reverted, hints, nil
 }

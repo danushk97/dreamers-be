@@ -49,8 +49,12 @@ type AuctionPlayerRepository interface {
 	// has the given serial_number within the auction's tournament event.
 	GetByAuctionAndRegistrationSerial(ctx context.Context, auctionID string, serialNumber int) (*AuctionPlayer, error)
 	ListByAuction(ctx context.Context, auctionID string) ([]*AuctionPlayer, error)
+	// ListByAuctionWithPlayerFilter returns lots whose linked registration matches optional filters:
+	// demographic fields on f (gender, ages) and/or registrationSerial (>0 = tournament_player_registrations.serial_number).
+	// When f is zero and registrationSerial is 0, callers should use ListByAuction instead.
+	ListByAuctionWithPlayerFilter(ctx context.Context, auctionID string, f RegistrationFilter, registrationSerial int) ([]*AuctionPlayer, error)
 	UpdateStatus(ctx context.Context, id string, status AuctionPlayerStatus, isActive bool) error
-	MarkSold(ctx context.Context, id string, finalPrice int64, soldToTeamRegistrationID string) error
+	MarkSold(ctx context.Context, id string, finalPrice int64, soldToTeamRegistrationID string, notes AuctionPlayerNotes) error
 	ClearSale(ctx context.Context, id string) error
 	// ResetAllLotsToPending sets every lot in the auction to pending with no sale/active state.
 	ResetAllLotsToPending(ctx context.Context, auctionID string) error
@@ -61,6 +65,7 @@ type BidRepository interface {
 	Create(ctx context.Context, b *Bid) error
 	ListByAuctionPlayer(ctx context.Context, auctionPlayerID string) ([]*Bid, error)
 	GetHighestBid(ctx context.Context, auctionPlayerID string) (*Bid, error)
+	DeleteLatestByAuctionPlayer(ctx context.Context, auctionPlayerID string) (*Bid, error)
 	DeleteByAuction(ctx context.Context, auctionID string) error
 }
 

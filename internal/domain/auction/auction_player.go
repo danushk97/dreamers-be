@@ -13,14 +13,20 @@ const (
 
 // AuctionPlayer is one sellable lot (registered player) inside an auction.
 type AuctionPlayer struct {
-	ID                               string
-	AuctionID                        string
-	TournamentPlayerRegistrationID   string
-	Status                           AuctionPlayerStatus
-	BasePrice                        int64 // smallest currency unit; often aligned with auction rules MinBidAmount
-	FinalPrice                       int64 // set when sold; 0 if not sold
-	SoldToTeamRegistrationID         string // TournamentTeamRegistration id; empty if not sold
-	LotNumber                        int    // display order within auction
-	IsActive                         bool   // only one lot might be "on the block" at a time
-	CreatedAt                        int64 // unix milliseconds
+	ID                             string
+	AuctionID                      string
+	TournamentPlayerRegistrationID string
+	Status                         AuctionPlayerStatus
+	Notes                          AuctionPlayerNotes
+	BasePrice                      int64  // smallest currency unit; often aligned with auction rules MinBidAmount
+	FinalPrice                     int64  // set when sold; 0 if not sold
+	SoldToTeamRegistrationID       string // TournamentTeamRegistration id; empty if not sold
+	LotNumber                      int    // display order within auction
+	IsActive                       bool   // only one lot might be "on the block" at a time
+	CreatedAt                      int64  // unix milliseconds
+}
+
+// AuctionPlayerNotes stores additional per-lot metadata.
+type AuctionPlayerNotes struct {
+	IsRetained bool `json:"isRetained"`
 }
