@@ -389,7 +389,7 @@ func TestService_SubstitutePlayer_AssignsWithoutWalletTransaction(t *testing.T) 
 	auctionRepo.EXPECT().GetByID(gomock.Any(), "auc1").Return(auc, nil)
 	teamRepo.EXPECT().GetByID(gomock.Any(), "team1").Return(team, nil)
 	tournamentEventRepo.EXPECT().GetByID(gomock.Any(), "te1").Return(te, nil)
-	lotRepo.EXPECT().ListByAuction(gomock.Any(), "auc1").Return([]*auction.AuctionPlayer{}, nil)
+	lotRepo.EXPECT().ListByAuction(gomock.Any(), "auc1").Return([]*auction.AuctionPlayer{}, nil).Times(2)
 	lotRepo.EXPECT().MarkSold(gomock.Any(), "lot1", int64(250), "team1", auction.AuctionPlayerNotes{
 		SubstitueDetails: &auction.AuctionPlayerSubstitueDetails{Amount: 250},
 	}).Return(nil)

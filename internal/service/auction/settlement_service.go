@@ -282,8 +282,15 @@ func (s *SettlementService) SubstitutePlayer(ctx context.Context, in SubstituteI
 	if err != nil {
 		return fmt.Errorf("count sold: %w", err)
 	}
-	if te.Attrs.TeamEventRules.MaxPlayersPerTeam > 0 && soldCount >= te.Attrs.TeamEventRules.MaxPlayersPerTeam {
-		return &ValidationError{Err: fmt.Errorf("team already reached max players")}
+	if te.Attrs.TeamEventRules.MaxPlayersPerTeam > 0 && soldCount < te.Attrs.TeamEventRules.MaxPlayersPerTeam {
+		return &ValidationError{Err: fmt.Errorf("team has not auctioned all players")}
+	}
+	substituteCount, err := countSubstitutedToTeam(ctx, s.lots, a.ID, in.TeamRegistrationID)
+	if err != nil {
+		return fmt.Errorf("count substitute: %w", err)
+	}
+	if a.Rules.MaxSubstitutePlayers > 0 && substituteCount >= a.Rules.MaxSubstitutePlayers {
+		return &ValidationError{Err: fmt.Errorf("team already reached max substitute players")}
 	}
 
 	if err := s.lots.MarkSold(ctx, lot.ID, in.Amount, in.TeamRegistrationID, auction.AuctionPlayerNotes{

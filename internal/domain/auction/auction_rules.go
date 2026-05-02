@@ -9,6 +9,7 @@ type AuctionRules struct {
 	MaxBidAmount          int64 `json:"MaxBidAmount"`
 	MaxRetainPlayers      int   `json:"MaxRetainPlayers"`
 	MaxRetainPlayerAmount int64 `json:"MaxRetainPlayerAmount"`
+	MaxSubstitutePlayers  int   `json:"MaxSubstitutePlayers"`
 }
 
 // Validate checks internal consistency. Zero values mean "unset" for that bound.
@@ -16,8 +17,8 @@ func (r AuctionRules) Validate() error {
 	if r.MinBidAmount < 0 || r.MaxBidAmount < 0 {
 		return fmt.Errorf("MinBidAmount and MaxBidAmount must be non-negative")
 	}
-	if r.MaxRetainPlayers < 0 || r.MaxRetainPlayerAmount < 0 {
-		return fmt.Errorf("MaxRetainPlayers and MaxRetainPlayerAmount must be non-negative")
+	if r.MaxRetainPlayers < 0 || r.MaxRetainPlayerAmount < 0 || r.MaxSubstitutePlayers < 0 {
+		return fmt.Errorf("MaxRetainPlayers, MaxRetainPlayerAmount, and MaxSubstitutePlayers must be non-negative")
 	}
 	if r.MaxBidAmount > 0 && r.MinBidAmount > r.MaxBidAmount {
 		return fmt.Errorf("MinBidAmount must be <= MaxBidAmount")

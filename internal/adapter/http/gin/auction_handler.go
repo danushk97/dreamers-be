@@ -96,6 +96,7 @@ type AuctionRulesRequest struct {
 	MaxBidAmount          int64 `json:"MaxBidAmount"`
 	MaxRetainPlayers      int   `json:"MaxRetainPlayers"`
 	MaxRetainPlayerAmount int64 `json:"MaxRetainPlayerAmount"`
+	MaxSubstitutePlayers  int   `json:"MaxSubstitutePlayers"`
 }
 
 type CreateAuctionRequest struct {
@@ -901,6 +902,7 @@ func (h *AuctionHandler) CreateAuction(c *gin.Context) {
 		MaxBidAmount:          req.Rules.MaxBidAmount,
 		MaxRetainPlayers:      req.Rules.MaxRetainPlayers,
 		MaxRetainPlayerAmount: req.Rules.MaxRetainPlayerAmount,
+		MaxSubstitutePlayers:  req.Rules.MaxSubstitutePlayers,
 	}
 	auc, err := h.auctionSvc.CreateAuction(c.Request.Context(), req.TournamentID, req.TournamentEventID, mode, runMode, filterPresets, rules)
 	if err != nil {
