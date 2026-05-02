@@ -46,7 +46,7 @@ func (h *PlayerHandler) Create(c *gin.Context) {
 		return
 	}
 	log.Printf("Player created id=%s tnbaId=%s name=%s", p.ID, p.TNBAID, p.Name)
-	c.JSON(http.StatusCreated, gin.H{"player": h.toPlayerResponseWithPresign(c, p)})
+	c.JSON(http.StatusCreated, gin.H{"player": h.toPlayerResponsePresign(c, p, true, true)})
 }
 
 // List lists players with filters.
@@ -80,8 +80,8 @@ func (h *PlayerHandler) List(c *gin.Context) {
 	})
 }
 
-// Get returns a single player by ID with presigned URLs.
-// GET /v1/players/:id — no auth middleware; safe for public read (auction live-relay / watch UI).
+// Get returns a single player by ID with presigned profile image.
+// GET /v1/players/:id — public; aadharCardImageURL is included only when valid admin Basic auth is sent.
 func (h *PlayerHandler) Get(c *gin.Context) {
 	id := strings.TrimSpace(c.Param("id"))
 	p, err := h.server.Get(c.Request.Context(), id)
@@ -99,42 +99,39 @@ func (h *PlayerHandler) Get(c *gin.Context) {
 		Error(c, http.StatusNotFound, "Not Found", "player not found")
 		return
 	}
+	includeAadhar := ValidBasicAuthCredentials(c, BasicAuthCredentials)
 	log.Printf("Get player id=%s name=%s", p.ID, p.Name)
-	c.JSON(http.StatusOK, gin.H{"player": h.toPlayerResponseWithPresign(c, p)})
+	c.JSON(http.StatusOK, gin.H{"player": h.toPlayerResponsePresign(c, p, true, includeAadhar)})
 }
 
 // toPlayerResponse returns a player for list (imageURL and aadharCardImageURL as keys, no presigning).
 func (h *PlayerHandler) toPlayerResponse(c *gin.Context, p *player.Entity) gin.H {
-	return h.toPlayerResponsePresign(c, p, false)
+	return h.toPlayerResponsePresign(c, p, false, true)
 }
 
-// toPlayerResponseWithPresign returns a player with presigned URLs (for Get, Create).
-func (h *PlayerHandler) toPlayerResponseWithPresign(c *gin.Context, p *player.Entity) gin.H {
-	return h.toPlayerResponsePresign(c, p, true)
-}
-
-func (h *PlayerHandler) toPlayerResponsePresign(c *gin.Context, p *player.Entity, presign bool) gin.H {
+func (h *PlayerHandler) toPlayerResponsePresign(c *gin.Context, p *player.Entity, presign, includeAadhar bool) gin.H {
 	phoneNum, _ := strconv.ParseInt(p.Phone, 10, 64)
 
 	imageURL := p.ImageURL
-	aadharURL := p.AadharCardImageURL
+	var aadharURL string
+	if includeAadhar {
+		aadharURL = p.AadharCardImageURL
+	}
 
 	if presign && h.presigner != nil {
-		// Presign S3 keys for both profile photo and aadhar.
 		if p.ImageURL != "" && !strings.HasPrefix(p.ImageURL, "http://") && !strings.HasPrefix(p.ImageURL, "https://") {
 			if u, err := h.presigner.Presign(c.Request.Context(), p.ImageURL, 1*time.Hour); err == nil {
 				imageURL = u
 			}
 		}
-		if p.AadharCardImageURL != "" && !strings.HasPrefix(p.AadharCardImageURL, "http://") && !strings.HasPrefix(p.AadharCardImageURL, "https://") {
+		if includeAadhar && p.AadharCardImageURL != "" && !strings.HasPrefix(p.AadharCardImageURL, "http://") && !strings.HasPrefix(p.AadharCardImageURL, "https://") {
 			if u, err := h.presigner.Presign(c.Request.Context(), p.AadharCardImageURL, 1*time.Hour); err == nil {
 				aadharURL = u
 			}
 		}
 	}
-	// List: presign=false, keep imageURL and aadharURL as stored keys
 
-	return gin.H{
+	out := gin.H{
 		"id":                 p.ID,
 		"name":               p.Name,
 		"imageURL":           imageURL,
@@ -145,6 +142,9 @@ func (h *PlayerHandler) toPlayerResponsePresign(c *gin.Context, p *player.Entity
 		"phone":              phoneNum,
 		"recentAchievements": p.RecentAchievements,
 		"tshirtSize":         p.TshirtSize,
-		"aadharCardImageURL": aadharURL,
 	}
+	if includeAadhar {
+		out["aadharCardImageURL"] = aadharURL
+	}
+	return out
 }

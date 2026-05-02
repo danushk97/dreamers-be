@@ -568,7 +568,7 @@ func (r *AuctionPlayerRepository) ListByAuction(ctx context.Context, auctionID s
 	return out, nil
 }
 
-func (r *AuctionPlayerRepository) ListByAuctionWithPlayerFilter(ctx context.Context, auctionID string, f auction.RegistrationFilter, registrationSerial int) ([]*auction.AuctionPlayer, error) {
+func (r *AuctionPlayerRepository) ListByAuctionWithPlayerFilter(ctx context.Context, auctionID string, f auction.RegistrationFilter, registrationSerial int, soldToTeamRegistrationID string) ([]*auction.AuctionPlayer, error) {
 	if auctionID == "" {
 		return nil, fmt.Errorf("auction_id is required")
 	}
@@ -580,6 +580,11 @@ func (r *AuctionPlayerRepository) ListByAuctionWithPlayerFilter(ctx context.Cont
 	}
 	args := []any{auctionID}
 	argIdx := 2
+	if soldToTeamRegistrationID != "" {
+		conds = append(conds, "ap.sold_to_team_registration_id = $"+fmt.Sprint(argIdx))
+		args = append(args, soldToTeamRegistrationID)
+		argIdx++
+	}
 	if registrationSerial > 0 {
 		conds = append(conds, "tr.serial_number = $"+fmt.Sprint(argIdx))
 		args = append(args, registrationSerial)
@@ -693,7 +698,7 @@ func (r *AuctionPlayerRepository) ClearSale(ctx context.Context, id string) erro
 			 sold_to_team_registration_id = NULL,
 			 is_active = FALSE
 		 WHERE id = $2`,
-		string(auction.AuctionPlayerUnsold), id,
+		string(auction.AuctionPlayerPending), id,
 	)
 	return err
 }
@@ -834,6 +839,27 @@ func NewWalletRepository(db *sql.DB) *WalletRepository {
 	return &WalletRepository{db: db}
 }
 
+func (r *WalletRepository) GetByID(ctx context.Context, walletID string) (*auction.Wallet, error) {
+	if walletID == "" {
+		return nil, fmt.Errorf("wallet_id is required")
+	}
+	var w auction.Wallet
+	err := r.db.QueryRowContext(
+		ctx,
+		`SELECT id, tournament_id, tournament_event_id, team_id, balance, max_bid_amount, created_at, updated_at
+		 FROM wallets
+		 WHERE id = $1`,
+		walletID,
+	).Scan(&w.ID, &w.TournamentID, &w.TournamentEventID, &w.TeamID, &w.Balance, &w.MaxBidAmount, &w.CreatedAt, &w.UpdatedAt)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &w, nil
+}
+
 func (r *WalletRepository) GetByTournamentEventTeam(ctx context.Context, tournamentID, tournamentEventID, teamRegistrationID string) (*auction.Wallet, error) {
 	var w auction.Wallet
 	err := r.db.QueryRowContext(
@@ -863,15 +889,73 @@ func (r *WalletRepository) UpdateBalance(ctx context.Context, walletID string, n
 	return err
 }
 
+func (r *WalletRepository) ListTransactionsByWalletID(ctx context.Context, walletID string) ([]*auction.WalletTransaction, error) {
+	if walletID == "" {
+		return nil, fmt.Errorf("wallet_id is required")
+	}
+	rows, err := r.db.QueryContext(
+		ctx,
+		`SELECT id, wallet_id, amount, type, reference_id, wallet_balance, created_at
+		 FROM wallet_transactions
+		 WHERE wallet_id = $1
+		 ORDER BY created_at DESC`,
+		walletID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []*auction.WalletTransaction
+	for rows.Next() {
+		var tx auction.WalletTransaction
+		if err := rows.Scan(&tx.ID, &tx.WalletID, &tx.Amount, &tx.Type, &tx.ReferenceID, &tx.WalletBalance, &tx.CreatedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, &tx)
+	}
+	return out, rows.Err()
+}
+
 func (r *WalletRepository) CreateTransaction(ctx context.Context, tx *auction.WalletTransaction) error {
 	if tx == nil {
 		return fmt.Errorf("wallet transaction is nil")
 	}
 	_, err := r.db.ExecContext(
 		ctx,
-		`INSERT INTO wallet_transactions (id, wallet_id, amount, type, reference_id, created_at)
-		 VALUES ($1,$2,$3,$4,$5,$6)`,
-		tx.ID, tx.WalletID, tx.Amount, string(tx.Type), tx.ReferenceID, tx.CreatedAt,
+		`INSERT INTO wallet_transactions (id, wallet_id, amount, type, reference_id, wallet_balance, created_at)
+		 VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+		tx.ID, tx.WalletID, tx.Amount, string(tx.Type), tx.ReferenceID, tx.WalletBalance, tx.CreatedAt,
+	)
+	return err
+}
+
+func (r *WalletRepository) DeleteAllWalletTransactionsForTournamentEvent(ctx context.Context, tournamentID, tournamentEventID string) error {
+	if tournamentID == "" || tournamentEventID == "" {
+		return fmt.Errorf("tournament_id and tournament_event_id are required")
+	}
+	_, err := r.db.ExecContext(
+		ctx,
+		`DELETE FROM wallet_transactions wt
+		 USING wallets w
+		 WHERE wt.wallet_id = w.id
+		   AND w.tournament_id = $1
+		   AND w.tournament_event_id = $2`,
+		tournamentID, tournamentEventID,
+	)
+	return err
+}
+
+func (r *WalletRepository) ZeroWalletBalancesForTournamentEvent(ctx context.Context, tournamentID, tournamentEventID string, updatedAtMs int64) error {
+	if tournamentID == "" || tournamentEventID == "" {
+		return fmt.Errorf("tournament_id and tournament_event_id are required")
+	}
+	_, err := r.db.ExecContext(
+		ctx,
+		`UPDATE wallets
+		 SET balance = 0, updated_at = $3
+		 WHERE tournament_id = $1 AND tournament_event_id = $2`,
+		tournamentID, tournamentEventID, updatedAtMs,
 	)
 	return err
 }

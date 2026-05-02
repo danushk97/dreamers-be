@@ -9,6 +9,9 @@ import (
 	"github.com/dreamers-be/internal/domain/auction"
 )
 
+// testAuctionResetCreditPaisa is ₹100,000 in paise (the domain wallet/bid unit).
+const testAuctionResetCreditPaisa int64 = 10_000_000
+
 type SettlementService struct {
 	auctions         auction.AuctionRepository
 	lots             auction.AuctionPlayerRepository
@@ -39,6 +42,12 @@ type SellInput struct {
 }
 
 type RetainInput struct {
+	AuctionPlayerID    string
+	TeamRegistrationID string
+	Amount             int64
+}
+
+type SubstituteInput struct {
 	AuctionPlayerID    string
 	TeamRegistrationID string
 	Amount             int64
@@ -99,18 +108,20 @@ func (s *SettlementService) SellCurrentLot(ctx context.Context, in SellInput) er
 	}
 
 	now := s.nowMs()
+	newBalance := w.Balance - highest.Amount
 	tx := &auction.WalletTransaction{
-		ID:          uuid.New().String(),
-		WalletID:    w.ID,
-		Amount:      highest.Amount,
-		Type:        auction.WalletTxnDebit,
-		ReferenceID: lot.ID,
-		CreatedAt:   now,
+		ID:            uuid.New().String(),
+		WalletID:      w.ID,
+		Amount:        highest.Amount,
+		Type:          auction.WalletTxnDebit,
+		ReferenceID:   lot.ID,
+		WalletBalance: newBalance,
+		CreatedAt:     now,
 	}
 	if err := s.wallets.CreateTransaction(ctx, tx); err != nil {
 		return fmt.Errorf("wallet debit tx: %w", err)
 	}
-	if err := s.wallets.UpdateBalance(ctx, w.ID, w.Balance-highest.Amount, now); err != nil {
+	if err := s.wallets.UpdateBalance(ctx, w.ID, newBalance, now); err != nil {
 		return fmt.Errorf("update wallet balance: %w", err)
 	}
 	return nil
@@ -200,19 +211,88 @@ func (s *SettlementService) RetainPlayer(ctx context.Context, in RetainInput) er
 		return fmt.Errorf("assign to team: %w", err)
 	}
 	now := s.nowMs()
+	newBalance := w.Balance - in.Amount
 	tx := &auction.WalletTransaction{
-		ID:          uuid.New().String(),
-		WalletID:    w.ID,
-		Amount:      in.Amount,
-		Type:        auction.WalletTxnDebit,
-		ReferenceID: lot.ID,
-		CreatedAt:   now,
+		ID:            uuid.New().String(),
+		WalletID:      w.ID,
+		Amount:        in.Amount,
+		Type:          auction.WalletTxnDebit,
+		ReferenceID:   lot.ID,
+		WalletBalance: newBalance,
+		CreatedAt:     now,
 	}
 	if err := s.wallets.CreateTransaction(ctx, tx); err != nil {
 		return fmt.Errorf("wallet debit tx: %w", err)
 	}
-	if err := s.wallets.UpdateBalance(ctx, w.ID, w.Balance-in.Amount, now); err != nil {
+	if err := s.wallets.UpdateBalance(ctx, w.ID, newBalance, now); err != nil {
 		return fmt.Errorf("update wallet balance: %w", err)
+	}
+	return nil
+}
+
+// SubstitutePlayer marks a lot sold with substitute details and assigns player to team.
+// No wallet movement or wallet transactions are created.
+func (s *SettlementService) SubstitutePlayer(ctx context.Context, in SubstituteInput) error {
+	if in.AuctionPlayerID == "" || in.TeamRegistrationID == "" {
+		return &ValidationError{Err: fmt.Errorf("auction_player_id and team_registration_id are required")}
+	}
+	if in.Amount <= 0 {
+		return &ValidationError{Err: fmt.Errorf("amount must be > 0")}
+	}
+	lot, err := s.lots.GetByID(ctx, in.AuctionPlayerID)
+	if err != nil {
+		return fmt.Errorf("get lot: %w", err)
+	}
+	if lot == nil {
+		return &ValidationError{Err: fmt.Errorf("lot not found")}
+	}
+	if lot.Status == auction.AuctionPlayerSold {
+		return &ValidationError{Err: fmt.Errorf("lot already sold")}
+	}
+	if lot.Status == auction.AuctionPlayerSkipped {
+		return &ValidationError{Err: fmt.Errorf("lot is skipped")}
+	}
+
+	a, err := s.auctions.GetByID(ctx, lot.AuctionID)
+	if err != nil {
+		return fmt.Errorf("get auction: %w", err)
+	}
+	if a == nil {
+		return &ValidationError{Err: fmt.Errorf("auction not found")}
+	}
+	team, err := s.teams.GetByID(ctx, in.TeamRegistrationID)
+	if err != nil {
+		return fmt.Errorf("get team: %w", err)
+	}
+	if team == nil {
+		return &ValidationError{Err: fmt.Errorf("team not found")}
+	}
+	if team.TournamentID != a.TournamentID || team.TournamentEventID != a.TournamentEventID {
+		return &ValidationError{Err: fmt.Errorf("team not in this tournament event")}
+	}
+	te, err := s.tournamentEvents.GetByID(ctx, a.TournamentEventID)
+	if err != nil {
+		return fmt.Errorf("get tournament event: %w", err)
+	}
+	if te == nil || te.Attrs.TeamEventRules == nil {
+		return &ValidationError{Err: fmt.Errorf("tournament event rules not found")}
+	}
+
+	soldCount, err := countSoldToTeam(ctx, s.lots, a.ID, in.TeamRegistrationID)
+	if err != nil {
+		return fmt.Errorf("count sold: %w", err)
+	}
+	if te.Attrs.TeamEventRules.MaxPlayersPerTeam > 0 && soldCount >= te.Attrs.TeamEventRules.MaxPlayersPerTeam {
+		return &ValidationError{Err: fmt.Errorf("team already reached max players")}
+	}
+
+	if err := s.lots.MarkSold(ctx, lot.ID, in.Amount, in.TeamRegistrationID, auction.AuctionPlayerNotes{
+		SubstitueDetails: &auction.AuctionPlayerSubstitueDetails{Amount: in.Amount},
+	}); err != nil {
+		return fmt.Errorf("mark substitute sold: %w", err)
+	}
+	if err := s.regs.AssignToTeam(ctx, lot.TournamentPlayerRegistrationID, in.TeamRegistrationID); err != nil {
+		return fmt.Errorf("assign to team: %w", err)
 	}
 	return nil
 }
@@ -236,7 +316,27 @@ func (s *SettlementService) MarkUnsold(ctx context.Context, auctionPlayerID stri
 	return s.lots.UpdateStatus(ctx, auctionPlayerID, auction.AuctionPlayerUnsold, false)
 }
 
-// RevertSale reverses a mistaken sale: unassign player, credit wallet back, and clear lot sale fields.
+// RelistUnsold moves an unsold lot back to pending on the same row (same as RevertSale for unsold, without allowing sold lots).
+func (s *SettlementService) RelistUnsold(ctx context.Context, auctionPlayerID string) error {
+	if auctionPlayerID == "" {
+		return &ValidationError{Err: fmt.Errorf("auction_player_id is required")}
+	}
+	lot, err := s.lots.GetByID(ctx, auctionPlayerID)
+	if err != nil {
+		return fmt.Errorf("get lot: %w", err)
+	}
+	if lot == nil {
+		return &ValidationError{Err: fmt.Errorf("lot not found")}
+	}
+	if lot.Status != auction.AuctionPlayerUnsold {
+		return &ValidationError{Err: fmt.Errorf("lot must be unsold to relist")}
+	}
+	return s.RevertSale(ctx, auctionPlayerID, "")
+}
+
+// RevertSale moves a lot from sold or unsold back to pending: clears sale fields, unassigns the player,
+// and for sold lots (except substitute, which never debited the wallet) credits the buyer's wallet.
+// Other statuses are rejected.
 func (s *SettlementService) RevertSale(ctx context.Context, auctionPlayerID string, reason string) error {
 	if auctionPlayerID == "" {
 		return &ValidationError{Err: fmt.Errorf("auction_player_id is required")}
@@ -248,26 +348,32 @@ func (s *SettlementService) RevertSale(ctx context.Context, auctionPlayerID stri
 	if lot == nil {
 		return &ValidationError{Err: fmt.Errorf("lot not found")}
 	}
-	if lot.Status != auction.AuctionPlayerSold {
-		return &ValidationError{Err: fmt.Errorf("lot is not sold")}
-	}
-	if lot.SoldToTeamRegistrationID == "" || lot.FinalPrice <= 0 {
-		return &ValidationError{Err: fmt.Errorf("sold lot missing sale fields")}
+	if lot.Status != auction.AuctionPlayerSold && lot.Status != auction.AuctionPlayerUnsold {
+		return &ValidationError{Err: fmt.Errorf("lot must be sold or unsold to revert")}
 	}
 
-	a, err := s.auctions.GetByID(ctx, lot.AuctionID)
-	if err != nil {
-		return fmt.Errorf("get auction: %w", err)
-	}
-	if a == nil {
-		return &ValidationError{Err: fmt.Errorf("auction not found")}
-	}
-	w, err := s.wallets.GetByTournamentEventTeam(ctx, a.TournamentID, a.TournamentEventID, lot.SoldToTeamRegistrationID)
-	if err != nil {
-		return fmt.Errorf("get wallet: %w", err)
-	}
-	if w == nil {
-		return &ValidationError{Err: fmt.Errorf("wallet not found")}
+	var w *auction.Wallet
+	if lot.Status == auction.AuctionPlayerSold {
+		if lot.SoldToTeamRegistrationID == "" || lot.FinalPrice <= 0 {
+			return &ValidationError{Err: fmt.Errorf("sold lot missing sale fields")}
+		}
+		// Substitute sales never touch the wallet; skip load and credit.
+		if lot.Notes.SubstitueDetails == nil {
+			a, err := s.auctions.GetByID(ctx, lot.AuctionID)
+			if err != nil {
+				return fmt.Errorf("get auction: %w", err)
+			}
+			if a == nil {
+				return &ValidationError{Err: fmt.Errorf("auction not found")}
+			}
+			w, err = s.wallets.GetByTournamentEventTeam(ctx, a.TournamentID, a.TournamentEventID, lot.SoldToTeamRegistrationID)
+			if err != nil {
+				return fmt.Errorf("get wallet: %w", err)
+			}
+			if w == nil {
+				return &ValidationError{Err: fmt.Errorf("wallet not found")}
+			}
+		}
 	}
 
 	if err := s.lots.ClearSale(ctx, lot.ID); err != nil {
@@ -277,27 +383,46 @@ func (s *SettlementService) RevertSale(ctx context.Context, auctionPlayerID stri
 		return fmt.Errorf("unassign: %w", err)
 	}
 
-	now := s.nowMs()
-	tx := &auction.WalletTransaction{
-		ID:          uuid.New().String(),
-		WalletID:    w.ID,
-		Amount:      lot.FinalPrice,
-		Type:        auction.WalletTxnCredit,
-		ReferenceID: lot.ID,
-		CreatedAt:   now,
-	}
-	if err := s.wallets.CreateTransaction(ctx, tx); err != nil {
-		return fmt.Errorf("wallet credit tx: %w", err)
-	}
-	if err := s.wallets.UpdateBalance(ctx, w.ID, w.Balance+lot.FinalPrice, now); err != nil {
-		return fmt.Errorf("update wallet balance: %w", err)
+	if w != nil {
+		now := s.nowMs()
+		newBalance := w.Balance + lot.FinalPrice
+		tx := &auction.WalletTransaction{
+			ID:            uuid.New().String(),
+			WalletID:      w.ID,
+			Amount:        lot.FinalPrice,
+			Type:          auction.WalletTxnCredit,
+			ReferenceID:   lot.ID,
+			WalletBalance: newBalance,
+			CreatedAt:     now,
+		}
+		if err := s.wallets.CreateTransaction(ctx, tx); err != nil {
+			return fmt.Errorf("wallet credit tx: %w", err)
+		}
+		if err := s.wallets.UpdateBalance(ctx, w.ID, newBalance, now); err != nil {
+			return fmt.Errorf("update wallet balance: %w", err)
+		}
 	}
 	_ = reason // reserved for audit later
 	return nil
 }
 
-// ResetTestAuction reverts all sold lots (wallet credit, unassign), removes all bids, and sets every
-// lot back to pending. Only allowed when the auction run mode is test.
+// revertSoldLotStructurallyForTestReset clears sale fields and unassigns the player (no wallet writes).
+func (s *SettlementService) revertSoldLotStructurallyForTestReset(ctx context.Context, lot *auction.AuctionPlayer) error {
+	if lot.SoldToTeamRegistrationID == "" || lot.FinalPrice <= 0 {
+		return &ValidationError{Err: fmt.Errorf("sold lot missing sale fields")}
+	}
+	if err := s.lots.ClearSale(ctx, lot.ID); err != nil {
+		return fmt.Errorf("clear sale: %w", err)
+	}
+	if err := s.regs.UnassignTeam(ctx, lot.TournamentPlayerRegistrationID); err != nil {
+		return fmt.Errorf("unassign: %w", err)
+	}
+	return nil
+}
+
+// ResetTestAuction clears sold lots, deletes every wallet ledger row (credits and debits) for all team
+// wallets in the auction's tournament event, credits each registered team wallet with ₹100,000,
+// removes all bids, and sets every lot back to pending. Only allowed when the auction runMode is test.
 func (s *SettlementService) ResetTestAuction(ctx context.Context, auctionID string) error {
 	if auctionID == "" {
 		return &ValidationError{Err: fmt.Errorf("auction_id is required")}
@@ -322,9 +447,48 @@ func (s *SettlementService) ResetTestAuction(ctx context.Context, auctionID stri
 			continue
 		}
 		if lot.Status == auction.AuctionPlayerSold {
-			if err := s.RevertSale(ctx, lot.ID, "test reset"); err != nil {
+			if err := s.revertSoldLotStructurallyForTestReset(ctx, lot); err != nil {
 				return err
 			}
+		}
+	}
+	if err := s.wallets.DeleteAllWalletTransactionsForTournamentEvent(ctx, a.TournamentID, a.TournamentEventID); err != nil {
+		return fmt.Errorf("delete wallet transactions for tournament event: %w", err)
+	}
+	now := s.nowMs()
+	if err := s.wallets.ZeroWalletBalancesForTournamentEvent(ctx, a.TournamentID, a.TournamentEventID, now); err != nil {
+		return fmt.Errorf("zero wallet balances for tournament event: %w", err)
+	}
+	teamRows, err := s.teams.ListByTournamentEvent(ctx, a.TournamentID, a.TournamentEventID)
+	if err != nil {
+		return fmt.Errorf("list teams: %w", err)
+	}
+	newBal := testAuctionResetCreditPaisa
+	for _, team := range teamRows {
+		if team == nil {
+			continue
+		}
+		w, err := s.wallets.GetByTournamentEventTeam(ctx, a.TournamentID, a.TournamentEventID, team.ID)
+		if err != nil {
+			return fmt.Errorf("get wallet for team %s: %w", team.ID, err)
+		}
+		if w == nil {
+			continue
+		}
+		tx := &auction.WalletTransaction{
+			ID:            uuid.New().String(),
+			WalletID:      w.ID,
+			Amount:        testAuctionResetCreditPaisa,
+			Type:          auction.WalletTxnCredit,
+			ReferenceID:   auctionID,
+			WalletBalance: newBal,
+			CreatedAt:     now,
+		}
+		if err := s.wallets.CreateTransaction(ctx, tx); err != nil {
+			return fmt.Errorf("wallet test-reset credit: %w", err)
+		}
+		if err := s.wallets.UpdateBalance(ctx, w.ID, newBal, now); err != nil {
+			return fmt.Errorf("update wallet balance: %w", err)
 		}
 	}
 	if err := s.bids.DeleteByAuction(ctx, auctionID); err != nil {

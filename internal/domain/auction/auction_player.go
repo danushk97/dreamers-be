@@ -28,5 +28,10 @@ type AuctionPlayer struct {
 
 // AuctionPlayerNotes stores additional per-lot metadata.
 type AuctionPlayerNotes struct {
-	IsRetained bool `json:"isRetained"`
+	IsRetained       bool                           `json:"isRetained"`
+	SubstitueDetails *AuctionPlayerSubstitueDetails `json:"substitueDetails,omitempty"`
+}
+
+type AuctionPlayerSubstitueDetails struct {
+	Amount int64 `json:"amount"`
 }

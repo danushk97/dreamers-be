@@ -441,18 +441,18 @@ func (mr *MockAuctionPlayerRepositoryMockRecorder) ListByAuction(ctx, auctionID 
 }
 
 // ListByAuctionWithPlayerFilter mocks base method.
-func (m *MockAuctionPlayerRepository) ListByAuctionWithPlayerFilter(ctx context.Context, auctionID string, f auction.RegistrationFilter, registrationSerial int) ([]*auction.AuctionPlayer, error) {
+func (m *MockAuctionPlayerRepository) ListByAuctionWithPlayerFilter(ctx context.Context, auctionID string, f auction.RegistrationFilter, registrationSerial int, soldToTeamRegistrationID string) ([]*auction.AuctionPlayer, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ListByAuctionWithPlayerFilter", ctx, auctionID, f, registrationSerial)
+	ret := m.ctrl.Call(m, "ListByAuctionWithPlayerFilter", ctx, auctionID, f, registrationSerial, soldToTeamRegistrationID)
 	ret0, _ := ret[0].([]*auction.AuctionPlayer)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // ListByAuctionWithPlayerFilter indicates an expected call of ListByAuctionWithPlayerFilter.
-func (mr *MockAuctionPlayerRepositoryMockRecorder) ListByAuctionWithPlayerFilter(ctx, auctionID, f, registrationSerial interface{}) *gomock.Call {
+func (mr *MockAuctionPlayerRepositoryMockRecorder) ListByAuctionWithPlayerFilter(ctx, auctionID, f, registrationSerial, soldToTeamRegistrationID interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListByAuctionWithPlayerFilter", reflect.TypeOf((*MockAuctionPlayerRepository)(nil).ListByAuctionWithPlayerFilter), ctx, auctionID, f, registrationSerial)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListByAuctionWithPlayerFilter", reflect.TypeOf((*MockAuctionPlayerRepository)(nil).ListByAuctionWithPlayerFilter), ctx, auctionID, f, registrationSerial, soldToTeamRegistrationID)
 }
 
 // MarkSold mocks base method.
@@ -645,6 +645,36 @@ func (mr *MockWalletRepositoryMockRecorder) GetByTournamentEventTeam(ctx, tourna
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetByTournamentEventTeam", reflect.TypeOf((*MockWalletRepository)(nil).GetByTournamentEventTeam), ctx, tournamentID, tournamentEventID, teamRegistrationID)
 }
 
+// GetByID mocks base method.
+func (m *MockWalletRepository) GetByID(ctx context.Context, walletID string) (*auction.Wallet, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetByID", ctx, walletID)
+	ret0, _ := ret[0].(*auction.Wallet)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetByID indicates an expected call of GetByID.
+func (mr *MockWalletRepositoryMockRecorder) GetByID(ctx, walletID interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetByID", reflect.TypeOf((*MockWalletRepository)(nil).GetByID), ctx, walletID)
+}
+
+// ListTransactionsByWalletID mocks base method.
+func (m *MockWalletRepository) ListTransactionsByWalletID(ctx context.Context, walletID string) ([]*auction.WalletTransaction, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListTransactionsByWalletID", ctx, walletID)
+	ret0, _ := ret[0].([]*auction.WalletTransaction)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListTransactionsByWalletID indicates an expected call of ListTransactionsByWalletID.
+func (mr *MockWalletRepositoryMockRecorder) ListTransactionsByWalletID(ctx, walletID interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListTransactionsByWalletID", reflect.TypeOf((*MockWalletRepository)(nil).ListTransactionsByWalletID), ctx, walletID)
+}
+
 // UpdateBalance mocks base method.
 func (m *MockWalletRepository) UpdateBalance(ctx context.Context, walletID string, newBalance, updatedAtMs int64) error {
 	m.ctrl.T.Helper()
@@ -657,4 +687,32 @@ func (m *MockWalletRepository) UpdateBalance(ctx context.Context, walletID strin
 func (mr *MockWalletRepositoryMockRecorder) UpdateBalance(ctx, walletID, newBalance, updatedAtMs interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateBalance", reflect.TypeOf((*MockWalletRepository)(nil).UpdateBalance), ctx, walletID, newBalance, updatedAtMs)
+}
+
+// DeleteAllWalletTransactionsForTournamentEvent mocks base method.
+func (m *MockWalletRepository) DeleteAllWalletTransactionsForTournamentEvent(ctx context.Context, tournamentID, tournamentEventID string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteAllWalletTransactionsForTournamentEvent", ctx, tournamentID, tournamentEventID)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeleteAllWalletTransactionsForTournamentEvent indicates an expected call of DeleteAllWalletTransactionsForTournamentEvent.
+func (mr *MockWalletRepositoryMockRecorder) DeleteAllWalletTransactionsForTournamentEvent(ctx, tournamentID, tournamentEventID interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteAllWalletTransactionsForTournamentEvent", reflect.TypeOf((*MockWalletRepository)(nil).DeleteAllWalletTransactionsForTournamentEvent), ctx, tournamentID, tournamentEventID)
+}
+
+// ZeroWalletBalancesForTournamentEvent mocks base method.
+func (m *MockWalletRepository) ZeroWalletBalancesForTournamentEvent(ctx context.Context, tournamentID, tournamentEventID string, updatedAtMs int64) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ZeroWalletBalancesForTournamentEvent", ctx, tournamentID, tournamentEventID, updatedAtMs)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// ZeroWalletBalancesForTournamentEvent indicates an expected call of ZeroWalletBalancesForTournamentEvent.
+func (mr *MockWalletRepositoryMockRecorder) ZeroWalletBalancesForTournamentEvent(ctx, tournamentID, tournamentEventID, updatedAtMs interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ZeroWalletBalancesForTournamentEvent", reflect.TypeOf((*MockWalletRepository)(nil).ZeroWalletBalancesForTournamentEvent), ctx, tournamentID, tournamentEventID, updatedAtMs)
 }

@@ -29,5 +29,7 @@ type WalletTransaction struct {
 	Amount      int64 // positive magnitude; direction is Type
 	Type        WalletTransactionType
 	ReferenceID string // e.g. auction_player_id or bid_id depending on integration rules
-	CreatedAt   int64 // unix milliseconds
+	// WalletBalance is the wallet balance immediately after this transaction is applied.
+	WalletBalance int64
+	CreatedAt     int64 // unix milliseconds
 }

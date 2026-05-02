@@ -342,6 +342,68 @@ func TestService_RetainPlayer_EnforcesMaxRetainAmount(t *testing.T) {
 	}
 }
 
+func TestService_SubstitutePlayer_AssignsWithoutWalletTransaction(t *testing.T) {
+	ctx := context.Background()
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	auctionRepo := mocks.NewMockAuctionRepository(ctrl)
+	lotRepo := mocks.NewMockAuctionPlayerRepository(ctrl)
+	regRepo := mocks.NewMockRegistrationRepository(ctrl)
+	teamRepo := mocks.NewMockTeamRepository(ctrl)
+	tournamentEventRepo := mocks.NewMockTournamentEventRepository(ctrl)
+	bidRepo := mocks.NewMockBidRepository(ctrl)
+	walletRepo := mocks.NewMockWalletRepository(ctrl)
+
+	svc := NewSettlementService(Deps{
+		AuctionRepo:         auctionRepo,
+		AuctionPlayerRepo:   lotRepo,
+		TournamentEventRepo: tournamentEventRepo,
+		RegistrationRepo:    regRepo,
+		TeamRepo:            teamRepo,
+		BidRepo:             bidRepo,
+		WalletRepo:          walletRepo,
+		NowMs:               func() int64 { return 1111 },
+	})
+
+	lot := &auction.AuctionPlayer{
+		ID:                             "lot1",
+		AuctionID:                      "auc1",
+		TournamentPlayerRegistrationID: "reg1",
+		Status:                         auction.AuctionPlayerPending,
+	}
+	auc := &auction.Auction{
+		ID:                "auc1",
+		TournamentID:      "t1",
+		TournamentEventID: "te1",
+	}
+	te := &auction.TournamentEvent{
+		ID: "te1",
+		Attrs: auction.EventAttrs{TeamEventRules: &auction.TeamEventRules{
+			MaxPlayersPerTeam: 5,
+		}},
+	}
+	team := &auction.TournamentTeamRegistration{ID: "team1", TournamentID: "t1", TournamentEventID: "te1"}
+
+	lotRepo.EXPECT().GetByID(gomock.Any(), "lot1").Return(lot, nil)
+	auctionRepo.EXPECT().GetByID(gomock.Any(), "auc1").Return(auc, nil)
+	teamRepo.EXPECT().GetByID(gomock.Any(), "team1").Return(team, nil)
+	tournamentEventRepo.EXPECT().GetByID(gomock.Any(), "te1").Return(te, nil)
+	lotRepo.EXPECT().ListByAuction(gomock.Any(), "auc1").Return([]*auction.AuctionPlayer{}, nil)
+	lotRepo.EXPECT().MarkSold(gomock.Any(), "lot1", int64(250), "team1", auction.AuctionPlayerNotes{
+		SubstitueDetails: &auction.AuctionPlayerSubstitueDetails{Amount: 250},
+	}).Return(nil)
+	regRepo.EXPECT().AssignToTeam(gomock.Any(), "reg1", "team1").Return(nil)
+
+	if err := svc.SubstitutePlayer(ctx, SubstituteInput{
+		AuctionPlayerID:    "lot1",
+		TeamRegistrationID: "team1",
+		Amount:             250,
+	}); err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+}
+
 func TestService_CreateLot_ScreeningGenderAndAge(t *testing.T) {
 	ctx := context.Background()
 	ctrl := gomock.NewController(t)

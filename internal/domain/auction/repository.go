@@ -50,11 +50,13 @@ type AuctionPlayerRepository interface {
 	GetByAuctionAndRegistrationSerial(ctx context.Context, auctionID string, serialNumber int) (*AuctionPlayer, error)
 	ListByAuction(ctx context.Context, auctionID string) ([]*AuctionPlayer, error)
 	// ListByAuctionWithPlayerFilter returns lots whose linked registration matches optional filters:
-	// demographic fields on f (gender, ages) and/or registrationSerial (>0 = tournament_player_registrations.serial_number).
-	// When f is zero and registrationSerial is 0, callers should use ListByAuction instead.
-	ListByAuctionWithPlayerFilter(ctx context.Context, auctionID string, f RegistrationFilter, registrationSerial int) ([]*AuctionPlayer, error)
+	// demographic fields on f (gender, ages) and/or registrationSerial (>0 = tournament_player_registrations.serial_number),
+	// and/or soldToTeamRegistrationID (non-empty = auction_players.sold_to_team_registration_id).
+	// When f is zero, registrationSerial is 0, and soldToTeamRegistrationID is empty, callers should use ListByAuction instead.
+	ListByAuctionWithPlayerFilter(ctx context.Context, auctionID string, f RegistrationFilter, registrationSerial int, soldToTeamRegistrationID string) ([]*AuctionPlayer, error)
 	UpdateStatus(ctx context.Context, id string, status AuctionPlayerStatus, isActive bool) error
 	MarkSold(ctx context.Context, id string, finalPrice int64, soldToTeamRegistrationID string, notes AuctionPlayerNotes) error
+	// ClearSale clears sale fields and sets the lot status to pending (back in the pool).
 	ClearSale(ctx context.Context, id string) error
 	// ResetAllLotsToPending sets every lot in the auction to pending with no sale/active state.
 	ResetAllLotsToPending(ctx context.Context, auctionID string) error
@@ -71,7 +73,14 @@ type BidRepository interface {
 
 // WalletRepository provides wallet balance and ledger writes.
 type WalletRepository interface {
+	GetByID(ctx context.Context, walletID string) (*Wallet, error)
 	GetByTournamentEventTeam(ctx context.Context, tournamentID, tournamentEventID, teamRegistrationID string) (*Wallet, error)
+	ListTransactionsByWalletID(ctx context.Context, walletID string) ([]*WalletTransaction, error)
 	UpdateBalance(ctx context.Context, walletID string, newBalance int64, updatedAtMs int64) error
 	CreateTransaction(ctx context.Context, tx *WalletTransaction) error
+	// DeleteAllWalletTransactionsForTournamentEvent removes every wallet_transactions row for wallets
+	// scoped to the tournament event (all credits and debits for those team purses).
+	DeleteAllWalletTransactionsForTournamentEvent(ctx context.Context, tournamentID, tournamentEventID string) error
+	// ZeroWalletBalancesForTournamentEvent sets balance to 0 for every wallet in the event (e.g. after a full ledger wipe).
+	ZeroWalletBalancesForTournamentEvent(ctx context.Context, tournamentID, tournamentEventID string, updatedAtMs int64) error
 }

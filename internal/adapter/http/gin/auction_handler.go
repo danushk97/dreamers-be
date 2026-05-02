@@ -149,6 +149,11 @@ type RetainRequest struct {
 	Amount             int64  `json:"amount"`
 }
 
+type SubstituteRequest struct {
+	TeamRegistrationID string `json:"teamRegistrationId"`
+	Amount             int64  `json:"amount"`
+}
+
 type RevertSaleRequest struct {
 	Reason string `json:"reason"`
 }
@@ -171,13 +176,30 @@ type AuctionPlayerResponse struct {
 	Status                         auction.AuctionPlayerStatus `json:"status"`
 	BasePrice                      int64                       `json:"basePrice"`
 	FinalPrice                     int64                       `json:"finalPrice"`
-	SoldToTeamRegistrationID       string                      `json:"soldToTeamRegistrationId"`
+	SoldToTeam                     *AuctionLotSoldToTeam       `json:"soldToTeam,omitempty"`
 	LotNumber                      int                         `json:"lotNumber"`
 	IsActive                       bool                        `json:"isActive"`
 	CreatedAt                      int64                       `json:"createdAt"`
 	Notes                          auction.AuctionPlayerNotes  `json:"notes"`
+	Player                         *AuctionLotPlayerResponse   `json:"player,omitempty"`
 	// ImageURL is the player profile photo (presigned when stored as S3 key), same semantics as GET /v1/players/:id.
 	ImageURL string `json:"imageURL,omitempty"`
+}
+
+type AuctionLotPlayerResponse struct {
+	ID       string `json:"id"`
+	Name     string `json:"name"`
+	District string `json:"district"`
+	Age      int    `json:"age"`
+	TNBAID   string `json:"tnbaId"`
+	ImageURL string `json:"imageUrl"`
+	About    string `json:"about"`
+}
+
+type AuctionLotSoldToTeam struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+	Logo string `json:"logo"`
 }
 
 func toAuctionPlayerResponse(ap *auction.AuctionPlayer) AuctionPlayerResponse {
@@ -191,7 +213,6 @@ func toAuctionPlayerResponse(ap *auction.AuctionPlayer) AuctionPlayerResponse {
 		Status:                         ap.Status,
 		BasePrice:                      ap.BasePrice,
 		FinalPrice:                     ap.FinalPrice,
-		SoldToTeamRegistrationID:       ap.SoldToTeamRegistrationID,
 		LotNumber:                      ap.LotNumber,
 		IsActive:                       ap.IsActive,
 		CreatedAt:                      ap.CreatedAt,
@@ -221,33 +242,81 @@ func (h *AuctionHandler) auctionPlayerResponsesWithPresignedPlayerImages(ctx con
 		}
 		return out
 	}
-	byPlayerID := make(map[string]string)
+	teamByID := map[string]*auction.TournamentTeamRegistration{}
+	if len(lots) > 0 && lots[0] != nil {
+		if auc, err := h.auctionSvc.GetAuction(ctx, lots[0].AuctionID); err == nil && auc != nil {
+			if teams, terr := h.auctionSvc.ListRegisteredTeams(ctx, auc.TournamentID, auc.TournamentEventID); terr == nil {
+				for _, t := range teams {
+					if t != nil {
+						teamByID[t.ID] = t
+					}
+				}
+			}
+		}
+	}
+	byPlayerID := make(map[string]*AuctionLotPlayerResponse)
 	for _, ap := range lots {
 		resp := toAuctionPlayerResponse(ap)
 		if ap == nil {
 			out = append(out, resp)
 			continue
 		}
+		if ap.SoldToTeamRegistrationID != "" {
+			if t := teamByID[ap.SoldToTeamRegistrationID]; t != nil {
+				resp.SoldToTeam = &AuctionLotSoldToTeam{
+					ID:   t.ID,
+					Name: t.TeamName,
+					Logo: t.TeamLogoURL,
+				}
+			}
+		}
 		reg, err := h.registrationRepo.GetByID(ctx, ap.TournamentPlayerRegistrationID)
 		if err != nil || reg == nil || reg.PlayerID == "" {
 			out = append(out, resp)
 			continue
 		}
-		img, ok := byPlayerID[reg.PlayerID]
+		playerResp, ok := byPlayerID[reg.PlayerID]
 		if !ok {
 			p, perr := h.playerRepo.GetByID(ctx, reg.PlayerID)
 			if perr != nil || p == nil {
-				byPlayerID[reg.PlayerID] = ""
+				byPlayerID[reg.PlayerID] = nil
 				out = append(out, resp)
 				continue
 			}
-			byPlayerID[reg.PlayerID] = h.presignPlayerImageURL(ctx, p.ImageURL)
-			img = byPlayerID[reg.PlayerID]
+			playerResp = &AuctionLotPlayerResponse{
+				ID:       p.ID,
+				Name:     p.Name,
+				District: p.District,
+				Age:      auctionPlayerAge(p.DateOfBirth),
+				TNBAID:   p.TNBAID,
+				ImageURL: h.presignPlayerImageURL(ctx, p.ImageURL),
+				About:    p.RecentAchievements,
+			}
+			byPlayerID[reg.PlayerID] = playerResp
 		}
-		resp.ImageURL = img
+		if playerResp != nil {
+			cp := *playerResp
+			resp.Player = &cp
+			resp.ImageURL = playerResp.ImageURL
+		}
 		out = append(out, resp)
 	}
 	return out
+}
+
+func auctionPlayerAge(dob time.Time) int {
+	if dob.IsZero() {
+		return 0
+	}
+	now := time.Now().UTC()
+	age := now.Year() - dob.Year()
+	if now.Month() < dob.Month() || (now.Month() == dob.Month() && now.Day() < dob.Day()) {
+		age--
+	}
+	if age < 0 {
+		return 0
+	}
+	return age
 }
 
 type BidResponse struct {
@@ -575,6 +644,31 @@ type WalletResponse struct {
 	UpdatedAt           int64 `json:"updatedAt"`
 }
 
+type WalletTransactionPlayerResponse struct {
+	ID       string `json:"id"`
+	Name     string `json:"name"`
+	District string `json:"district"`
+	Age      int    `json:"age"`
+	TNBAID   string `json:"tnbaId"`
+	ImageURL string `json:"imageUrl"`
+	About    string `json:"about"`
+}
+
+type WalletTransactionDetailsResponse struct {
+	ID            string                           `json:"id"`
+	WalletID      string                           `json:"walletId"`
+	Amount        int64                            `json:"amount"`
+	Type          auction.WalletTransactionType    `json:"type"`
+	ReferenceID   string                           `json:"referenceId"`
+	WalletBalance int64                            `json:"walletBalance"`
+	CreatedAt     int64                            `json:"createdAt"`
+	Player        *WalletTransactionPlayerResponse `json:"player,omitempty"`
+}
+
+type WalletTransactionEnvelopeResponse struct {
+	Transaction WalletTransactionDetailsResponse `json:"transaction"`
+}
+
 func toWalletResponse(w *auction.Wallet) WalletResponse {
 	if w == nil {
 		return WalletResponse{}
@@ -582,6 +676,51 @@ func toWalletResponse(w *auction.Wallet) WalletResponse {
 	return WalletResponse{
 		ID: w.ID, TournamentID: w.TournamentID, TournamentEventID: w.TournamentEventID, TeamID: w.TeamID,
 		Balance: w.Balance, MaxBidAmount: w.MaxBidAmount, CreatedAt: w.CreatedAt, UpdatedAt: w.UpdatedAt,
+	}
+}
+
+func (h *AuctionHandler) walletTransactionPlayerByReference(ctx context.Context, referenceID string) *WalletTransactionPlayerResponse {
+	if h.auctionPlayerRepo == nil || h.registrationRepo == nil || h.playerRepo == nil || strings.TrimSpace(referenceID) == "" {
+		return nil
+	}
+	lot, err := h.auctionPlayerRepo.GetByID(ctx, referenceID)
+	if err != nil || lot == nil {
+		return nil
+	}
+	reg, err := h.registrationRepo.GetByID(ctx, lot.TournamentPlayerRegistrationID)
+	if err != nil || reg == nil || reg.PlayerID == "" {
+		return nil
+	}
+	p, err := h.playerRepo.GetByID(ctx, reg.PlayerID)
+	if err != nil || p == nil {
+		return nil
+	}
+	return &WalletTransactionPlayerResponse{
+		ID:       p.ID,
+		Name:     p.Name,
+		District: p.District,
+		Age:      auctionPlayerAge(p.DateOfBirth),
+		TNBAID:   p.TNBAID,
+		ImageURL: h.presignPlayerImageURL(ctx, p.ImageURL),
+		About:    p.RecentAchievements,
+	}
+}
+
+func (h *AuctionHandler) toWalletTransactionEnvelope(ctx context.Context, tx *auction.WalletTransaction) WalletTransactionEnvelopeResponse {
+	if tx == nil {
+		return WalletTransactionEnvelopeResponse{}
+	}
+	return WalletTransactionEnvelopeResponse{
+		Transaction: WalletTransactionDetailsResponse{
+			ID:            tx.ID,
+			WalletID:      tx.WalletID,
+			Amount:        tx.Amount,
+			Type:          tx.Type,
+			ReferenceID:   tx.ReferenceID,
+			WalletBalance: tx.WalletBalance,
+			CreatedAt:     tx.CreatedAt,
+			Player:        h.walletTransactionPlayerByReference(ctx, tx.ReferenceID),
+		},
 	}
 }
 
@@ -898,11 +1037,13 @@ func (h *AuctionHandler) CreateLotsBulk(c *gin.Context) {
 
 // GET /v1/auctions/:auctionId/lots
 // Optional query: presetId (same as POST …/eligible), or minAgeYears, maxAgeYears, gender (same semantics as eligible filter),
-// or serialNumber (positive int = tournament registration serial_number for the lot’s registration).
+// or serialNumber (positive int = tournament registration serial_number for the lot’s registration),
+// or sold_to (tournament team registration id = lots sold to that team).
 // Omitting all filters returns every lot for the auction.
 func (h *AuctionHandler) ListLotsByAuction(c *gin.Context) {
 	auctionID := c.Param("auctionId")
 	presetID := strings.TrimSpace(c.Query("presetId"))
+	soldTo := strings.TrimSpace(c.Query("soldTo"))
 
 	serial, serialErr := parseOptionalPositiveSerialQuery(c, "serialNumber")
 	if serialErr != nil {
@@ -927,10 +1068,10 @@ func (h *AuctionHandler) ListLotsByAuction(c *gin.Context) {
 	}
 
 	var lots []*auction.AuctionPlayer
-	if registrationFilterIsEmpty(filter) && serial == 0 {
+	if registrationFilterIsEmpty(filter) && serial == 0 && soldTo == "" {
 		lots, err = h.auctionPlayerRepo.ListByAuction(c.Request.Context(), auctionID)
 	} else {
-		lots, err = h.auctionPlayerRepo.ListByAuctionWithPlayerFilter(c.Request.Context(), auctionID, filter, serial)
+		lots, err = h.auctionPlayerRepo.ListByAuctionWithPlayerFilter(c.Request.Context(), auctionID, filter, serial, soldTo)
 	}
 	if err != nil {
 		Error(c, http.StatusInternalServerError, "Internal Server Error", err.Error())
@@ -1142,6 +1283,29 @@ func (h *AuctionHandler) RetainPlayer(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"ok": true})
 }
 
+// POST /api/v1/auction-players/:auctionPlayerId/substitute
+func (h *AuctionHandler) SubstitutePlayer(c *gin.Context) {
+	auctionPlayerID := c.Param("auctionPlayerId")
+	var req SubstituteRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		Error(c, http.StatusBadRequest, "Bad Request", "invalid request body")
+		return
+	}
+	if err := h.settlementSvc.SubstitutePlayer(c.Request.Context(), auctionservice.SubstituteInput{
+		AuctionPlayerID:    auctionPlayerID,
+		TeamRegistrationID: req.TeamRegistrationID,
+		Amount:             req.Amount,
+	}); err != nil {
+		if auctionservice.IsValidationError(err) {
+			Error(c, http.StatusBadRequest, "Validation Error", err.Error())
+			return
+		}
+		Error(c, http.StatusInternalServerError, "Internal Server Error", err.Error())
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"ok": true})
+}
+
 // POST /api/v1/auction-players/:auctionPlayerId/unsold
 func (h *AuctionHandler) MarkUnsold(c *gin.Context) {
 	auctionPlayerID := c.Param("auctionPlayerId")
@@ -1156,7 +1320,22 @@ func (h *AuctionHandler) MarkUnsold(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"ok": true})
 }
 
+// POST /api/v1/auction-players/:auctionPlayerId/relist
+func (h *AuctionHandler) RelistUnsold(c *gin.Context) {
+	auctionPlayerID := c.Param("auctionPlayerId")
+	if err := h.settlementSvc.RelistUnsold(c.Request.Context(), auctionPlayerID); err != nil {
+		if auctionservice.IsValidationError(err) {
+			Error(c, http.StatusBadRequest, "Validation Error", err.Error())
+			return
+		}
+		Error(c, http.StatusInternalServerError, "Internal Server Error", err.Error())
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"ok": true})
+}
+
 // POST /api/v1/auction-players/:auctionPlayerId/revert
+// Allowed when the lot is sold or unsold; result is always pending (and wallet credit when a debit had been applied).
 func (h *AuctionHandler) RevertSale(c *gin.Context) {
 	auctionPlayerID := c.Param("auctionPlayerId")
 	var req RevertSaleRequest
@@ -1207,6 +1386,43 @@ func (h *AuctionHandler) GetWallet(c *gin.Context) {
 		}
 	}
 	c.JSON(http.StatusOK, gin.H{"wallet": wr})
+}
+
+// GET /api/v1/wallets/:walletId/transactions/:transactionType
+// transactionType must be "credit" or "debit".
+func (h *AuctionHandler) ListWalletTransactions(c *gin.Context) {
+	walletID := strings.TrimSpace(c.Param("walletId"))
+	transactionType := strings.TrimSpace(strings.ToLower(c.Param("transactionType")))
+	if walletID == "" {
+		Error(c, http.StatusBadRequest, "Validation Error", "walletId is required")
+		return
+	}
+	if transactionType != string(auction.WalletTxnCredit) && transactionType != string(auction.WalletTxnDebit) {
+		Error(c, http.StatusBadRequest, "Validation Error", "transactionType must be credit or debit")
+		return
+	}
+	w, err := h.walletRepo.GetByID(c.Request.Context(), walletID)
+	if err != nil {
+		Error(c, http.StatusInternalServerError, "Internal Server Error", err.Error())
+		return
+	}
+	if w == nil {
+		Error(c, http.StatusNotFound, "Not Found", "wallet not found")
+		return
+	}
+	txs, err := h.walletRepo.ListTransactionsByWalletID(c.Request.Context(), walletID)
+	if err != nil {
+		Error(c, http.StatusInternalServerError, "Internal Server Error", err.Error())
+		return
+	}
+	items := make([]WalletTransactionEnvelopeResponse, 0, len(txs))
+	for _, tx := range txs {
+		if tx == nil || string(tx.Type) != transactionType {
+			continue
+		}
+		items = append(items, h.toWalletTransactionEnvelope(c.Request.Context(), tx))
+	}
+	c.JSON(http.StatusOK, gin.H{"transactions": items})
 }
 
 // helper: not currently used but kept for future URL query parsing
