@@ -12,7 +12,7 @@ import (
 // BasicAuthCredentials holds admin credentials for Basic auth (player list, mutating auction APIs).
 // TODO: move to config and proper auth
 var BasicAuthCredentials = map[string]string{
-	"admin": "johnny@123",
+	"admin": "wdhu@123",
 }
 
 func checkBasicAuth(authHeader string, accounts map[string]string) (ok bool, reason string) {
