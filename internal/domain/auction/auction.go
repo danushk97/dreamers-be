@@ -24,6 +24,8 @@ type Auction struct {
 	TournamentEventID string
 	Mode              AuctionMode // bidding style (DB column mode): open, sealed, etc.
 	RunMode           AuctionRunMode `json:"runMode"` // test vs live (DB column run_mode)
+	// Status is created → running → completed (DB column auctions.status). Bids/settlement/lot writes require running.
+	Status AuctionStatus `json:"status"`
 	// DisplayAuctionPlayerID is the lot row the console/relay should show (any status). Empty = unset.
 	DisplayAuctionPlayerID string `json:"displayAuctionPlayerId,omitempty"`
 	// FilterPresets is a saved list of category filters (persist as JSON in DB).

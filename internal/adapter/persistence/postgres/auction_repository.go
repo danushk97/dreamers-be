@@ -99,11 +99,15 @@ func (r *AuctionRepository) Create(ctx context.Context, a *auction.Auction) erro
 	if runMode == "" {
 		runMode = string(auction.AuctionRunModeTest)
 	}
+	st := string(a.Status)
+	if st == "" {
+		st = string(auction.AuctionStatusCreated)
+	}
 	_, err = r.db.ExecContext(
 		ctx,
-		`INSERT INTO auctions (id, tournament_id, tournament_event_id, mode, run_mode, filter_presets, rules, display_auction_player_id, created_at)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, NULL, $8)`,
-		a.ID, a.TournamentID, a.TournamentEventID, string(a.Mode), runMode, filterRaw, rulesRaw, a.CreatedAt,
+		`INSERT INTO auctions (id, tournament_id, tournament_event_id, mode, run_mode, status, filter_presets, rules, display_auction_player_id, created_at)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NULL, $9)`,
+		a.ID, a.TournamentID, a.TournamentEventID, string(a.Mode), runMode, st, filterRaw, rulesRaw, a.CreatedAt,
 	)
 	return err
 }
@@ -115,12 +119,13 @@ func (r *AuctionRepository) GetByID(ctx context.Context, id string) (*auction.Au
 	var modeStr string
 	var runModeStr string
 	var displayLotID sql.NullString
+	var statusStr string
 	err := r.db.QueryRowContext(
 		ctx,
-		`SELECT id, tournament_id, tournament_event_id, mode, run_mode, filter_presets, rules, display_auction_player_id, created_at
+		`SELECT id, tournament_id, tournament_event_id, mode, run_mode, status, filter_presets, rules, display_auction_player_id, created_at
 		 FROM auctions WHERE id = $1`,
 		id,
-	).Scan(&a.ID, &a.TournamentID, &a.TournamentEventID, &modeStr, &runModeStr, &filterRaw, &rulesRaw, &displayLotID, &a.CreatedAt)
+	).Scan(&a.ID, &a.TournamentID, &a.TournamentEventID, &modeStr, &runModeStr, &statusStr, &filterRaw, &rulesRaw, &displayLotID, &a.CreatedAt)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -132,6 +137,11 @@ func (r *AuctionRepository) GetByID(ctx context.Context, id string) (*auction.Au
 		a.RunMode = auction.AuctionRunMode(runModeStr)
 	} else {
 		a.RunMode = auction.AuctionRunModeTest
+	}
+	if statusStr != "" {
+		a.Status = auction.AuctionStatus(statusStr)
+	} else {
+		a.Status = auction.AuctionStatusCreated
 	}
 
 	if len(filterRaw) > 0 {
@@ -189,6 +199,32 @@ func (r *AuctionRepository) UpdateRunMode(ctx context.Context, auctionID string,
 		ctx,
 		`UPDATE auctions SET run_mode = $1 WHERE id = $2`,
 		rs, auctionID,
+	)
+	if err != nil {
+		return err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return fmt.Errorf("auction not found")
+	}
+	return nil
+}
+
+func (r *AuctionRepository) UpdateStatus(ctx context.Context, auctionID string, status auction.AuctionStatus) error {
+	if auctionID == "" {
+		return fmt.Errorf("auction_id is required")
+	}
+	ss := string(status)
+	if _, err := auction.ParseAuctionStatus(ss); err != nil {
+		return err
+	}
+	res, err := r.db.ExecContext(
+		ctx,
+		`UPDATE auctions SET status = $1 WHERE id = $2`,
+		ss, auctionID,
 	)
 	if err != nil {
 		return err

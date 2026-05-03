@@ -77,6 +77,9 @@ func (s *SettlementService) SellCurrentLot(ctx context.Context, in SellInput) er
 	if a == nil {
 		return &ValidationError{Err: fmt.Errorf("auction not found")}
 	}
+	if err := requireAuctionRunning(a); err != nil {
+		return err
+	}
 
 	highest, err := s.bids.GetHighestBid(ctx, lot.ID)
 	if err != nil {
@@ -155,6 +158,9 @@ func (s *SettlementService) RetainPlayer(ctx context.Context, in RetainInput) er
 	}
 	if a == nil {
 		return &ValidationError{Err: fmt.Errorf("auction not found")}
+	}
+	if err := requireAuctionRunning(a); err != nil {
+		return err
 	}
 	if a.Rules.MaxRetainPlayerAmount > 0 && in.Amount > a.Rules.MaxRetainPlayerAmount {
 		return &ValidationError{Err: fmt.Errorf("retain amount exceeds MaxRetainPlayerAmount")}
@@ -260,6 +266,9 @@ func (s *SettlementService) SubstitutePlayer(ctx context.Context, in SubstituteI
 	if a == nil {
 		return &ValidationError{Err: fmt.Errorf("auction not found")}
 	}
+	if err := requireAuctionRunning(a); err != nil {
+		return err
+	}
 	team, err := s.teams.GetByID(ctx, in.TeamRegistrationID)
 	if err != nil {
 		return fmt.Errorf("get team: %w", err)
@@ -317,6 +326,16 @@ func (s *SettlementService) MarkUnsold(ctx context.Context, auctionPlayerID stri
 	if lot == nil {
 		return &ValidationError{Err: fmt.Errorf("lot not found")}
 	}
+	a, err := s.auctions.GetByID(ctx, lot.AuctionID)
+	if err != nil {
+		return fmt.Errorf("get auction: %w", err)
+	}
+	if a == nil {
+		return &ValidationError{Err: fmt.Errorf("auction not found")}
+	}
+	if err := requireAuctionRunning(a); err != nil {
+		return err
+	}
 	if lot.Status == auction.AuctionPlayerSold {
 		return s.RevertSale(ctx, auctionPlayerID, "")
 	}
@@ -334,6 +353,16 @@ func (s *SettlementService) RelistUnsold(ctx context.Context, auctionPlayerID st
 	}
 	if lot == nil {
 		return &ValidationError{Err: fmt.Errorf("lot not found")}
+	}
+	a, err := s.auctions.GetByID(ctx, lot.AuctionID)
+	if err != nil {
+		return fmt.Errorf("get auction: %w", err)
+	}
+	if a == nil {
+		return &ValidationError{Err: fmt.Errorf("auction not found")}
+	}
+	if err := requireAuctionRunning(a); err != nil {
+		return err
 	}
 	if lot.Status != auction.AuctionPlayerUnsold {
 		return &ValidationError{Err: fmt.Errorf("lot must be unsold to relist")}
@@ -359,6 +388,17 @@ func (s *SettlementService) RevertSale(ctx context.Context, auctionPlayerID stri
 		return &ValidationError{Err: fmt.Errorf("lot must be sold or unsold to revert")}
 	}
 
+	a, err := s.auctions.GetByID(ctx, lot.AuctionID)
+	if err != nil {
+		return fmt.Errorf("get auction: %w", err)
+	}
+	if a == nil {
+		return &ValidationError{Err: fmt.Errorf("auction not found")}
+	}
+	if err := requireAuctionRunning(a); err != nil {
+		return err
+	}
+
 	var w *auction.Wallet
 	if lot.Status == auction.AuctionPlayerSold {
 		if lot.SoldToTeamRegistrationID == "" || lot.FinalPrice <= 0 {
@@ -366,13 +406,6 @@ func (s *SettlementService) RevertSale(ctx context.Context, auctionPlayerID stri
 		}
 		// Substitute sales never touch the wallet; skip load and credit.
 		if lot.Notes.SubstitueDetails == nil {
-			a, err := s.auctions.GetByID(ctx, lot.AuctionID)
-			if err != nil {
-				return fmt.Errorf("get auction: %w", err)
-			}
-			if a == nil {
-				return &ValidationError{Err: fmt.Errorf("auction not found")}
-			}
 			w, err = s.wallets.GetByTournamentEventTeam(ctx, a.TournamentID, a.TournamentEventID, lot.SoldToTeamRegistrationID)
 			if err != nil {
 				return fmt.Errorf("get wallet: %w", err)
@@ -429,7 +462,8 @@ func (s *SettlementService) revertSoldLotStructurallyForTestReset(ctx context.Co
 
 // ResetTestAuction clears sold lots, deletes every wallet ledger row (credits and debits) for all team
 // wallets in the auction's tournament event, credits each registered team wallet with ₹100,000,
-// removes all bids, and sets every lot back to pending. Only allowed when the auction runMode is test.
+// removes all bids, sets every lot back to pending, clears the display lot, and sets auction status to created.
+// Only allowed when the auction runMode is test.
 func (s *SettlementService) ResetTestAuction(ctx context.Context, auctionID string) error {
 	if auctionID == "" {
 		return &ValidationError{Err: fmt.Errorf("auction_id is required")}
@@ -506,6 +540,9 @@ func (s *SettlementService) ResetTestAuction(ctx context.Context, auctionID stri
 	}
 	if err := s.auctions.UpdateDisplayAuctionPlayer(ctx, auctionID, ""); err != nil {
 		return fmt.Errorf("clear display lot: %w", err)
+	}
+	if err := s.auctions.UpdateStatus(ctx, auctionID, auction.AuctionStatusCreated); err != nil {
+		return fmt.Errorf("reset auction status: %w", err)
 	}
 	return nil
 }

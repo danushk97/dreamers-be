@@ -73,6 +73,9 @@ func (s *BidService) PlaceBid(ctx context.Context, in PlaceBidInput) (*auction.B
 	if a == nil {
 		return nil, BidPlacementHints{}, &ValidationError{Err: fmt.Errorf("auction not found")}
 	}
+	if err := requireAuctionRunning(a); err != nil {
+		return nil, BidPlacementHints{}, err
+	}
 	te, err := s.tournamentEvents.GetByID(ctx, a.TournamentEventID)
 	if err != nil {
 		return nil, BidPlacementHints{}, fmt.Errorf("get tournament event: %w", err)
@@ -178,6 +181,9 @@ func (s *BidService) RevertLatestBid(ctx context.Context, in RevertBidInput) (*a
 	}
 	if a == nil {
 		return nil, BidPlacementHints{}, &ValidationError{Err: fmt.Errorf("auction not found")}
+	}
+	if err := requireAuctionRunning(a); err != nil {
+		return nil, BidPlacementHints{}, err
 	}
 
 	reverted, err := s.bids.DeleteLatestByAuctionPlayer(ctx, in.AuctionPlayerID)

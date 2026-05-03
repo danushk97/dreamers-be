@@ -36,6 +36,7 @@ func TestService_PlaceBid_ReservesForMinimumRoster(t *testing.T) {
 	lot := &auction.AuctionPlayer{ID: "lot1", AuctionID: "auc1", Status: auction.AuctionPlayerActive, BasePrice: 0}
 	auc := &auction.Auction{
 		ID: "auc1", TournamentID: "t1", TournamentEventID: "te1",
+		Status: auction.AuctionStatusRunning,
 		Rules: auction.AuctionRules{MinBidAmount: 100, MaxBidAmount: 1000},
 	}
 	te := &auction.TournamentEvent{
@@ -96,6 +97,7 @@ func TestService_RevertLatestBid_RemovesLatestBid(t *testing.T) {
 		ID:                "auc1",
 		TournamentID:      "t1",
 		TournamentEventID: "te1",
+		Status:            auction.AuctionStatusRunning,
 		Rules:             auction.AuctionRules{MinBidAmount: 100, MaxBidAmount: 500},
 	}
 	reverted := &auction.Bid{ID: "bid2", AuctionPlayerID: "lot1", TeamRegistrationID: "team1", Amount: 200}
@@ -153,7 +155,7 @@ func TestService_SellCurrentLot_SettlesWalletAndAssigns(t *testing.T) {
 		TournamentPlayerRegistrationID: "reg1",
 		Status:                         auction.AuctionPlayerActive,
 	}
-	auc := &auction.Auction{ID: "auc1", TournamentID: "t1", TournamentEventID: "te1"}
+	auc := &auction.Auction{ID: "auc1", TournamentID: "t1", TournamentEventID: "te1", Status: auction.AuctionStatusRunning}
 	highest := &auction.Bid{ID: "bid1", AuctionPlayerID: "lot1", TeamRegistrationID: "team1", Amount: 300}
 	w := &auction.Wallet{ID: "w1", Balance: 500}
 
@@ -214,12 +216,12 @@ func TestService_MarkUnsold_SoldLot_RevertsSale(t *testing.T) {
 		FinalPrice:                     300,
 		SoldToTeamRegistrationID:       "team1",
 	}
-	auc := &auction.Auction{ID: "auc1", TournamentID: "t1", TournamentEventID: "te1"}
+	auc := &auction.Auction{ID: "auc1", TournamentID: "t1", TournamentEventID: "te1", Status: auction.AuctionStatusRunning}
 	w := &auction.Wallet{ID: "w1", Balance: 200}
 
 	// MarkUnsold and RevertSale each load the lot.
 	lotRepo.EXPECT().GetByID(gomock.Any(), "lot1").Return(lot, nil).Times(2)
-	auctionRepo.EXPECT().GetByID(gomock.Any(), "auc1").Return(auc, nil)
+	auctionRepo.EXPECT().GetByID(gomock.Any(), "auc1").Return(auc, nil).Times(2)
 	walletRepo.EXPECT().GetByTournamentEventTeam(gomock.Any(), "t1", "te1", "team1").Return(w, nil)
 	lotRepo.EXPECT().ClearSale(gomock.Any(), "lot1").Return(nil)
 	regRepo.EXPECT().UnassignTeam(gomock.Any(), "reg1").Return(nil)
@@ -265,6 +267,7 @@ func TestService_RetainPlayer_SettlesAsRetained(t *testing.T) {
 		ID:                "auc1",
 		TournamentID:      "t1",
 		TournamentEventID: "te1",
+		Status:            auction.AuctionStatusRunning,
 		Rules:             auction.AuctionRules{MinBidAmount: 100, MaxRetainPlayers: 2, MaxRetainPlayerAmount: 400},
 	}
 	te := &auction.TournamentEvent{
@@ -326,6 +329,7 @@ func TestService_RetainPlayer_EnforcesMaxRetainAmount(t *testing.T) {
 		ID:                "auc1",
 		TournamentID:      "t1",
 		TournamentEventID: "te1",
+		Status:            auction.AuctionStatusRunning,
 		Rules:             auction.AuctionRules{MaxRetainPlayerAmount: 200},
 	}
 
@@ -376,11 +380,13 @@ func TestService_SubstitutePlayer_AssignsWithoutWalletTransaction(t *testing.T) 
 		ID:                "auc1",
 		TournamentID:      "t1",
 		TournamentEventID: "te1",
+		Status:            auction.AuctionStatusRunning,
 	}
 	te := &auction.TournamentEvent{
 		ID: "te1",
 		Attrs: auction.EventAttrs{TeamEventRules: &auction.TeamEventRules{
-			MaxPlayersPerTeam: 5,
+			// 0 = no cap: substitute path otherwise requires soldCount >= MaxPlayersPerTeam.
+			MaxPlayersPerTeam: 0,
 		}},
 	}
 	team := &auction.TournamentTeamRegistration{ID: "team1", TournamentID: "t1", TournamentEventID: "te1"}
@@ -427,6 +433,7 @@ func TestService_CreateLot_ScreeningGenderAndAge(t *testing.T) {
 		ID:                "auc1",
 		TournamentID:      "t1",
 		TournamentEventID: "te1",
+		Status:            auction.AuctionStatusRunning,
 		Rules:             auction.AuctionRules{MinBidAmount: 100},
 	}
 	te := &auction.TournamentEvent{ID: "te1", Attrs: auction.EventAttrs{TeamEventRules: &auction.TeamEventRules{IsAuction: true}}}
@@ -500,7 +507,8 @@ func TestLotService_CreateLotsByQuery_ReactivatesUnsoldLots(t *testing.T) {
 
 	auc := &auction.Auction{
 		ID: "auc1", TournamentID: "t1", TournamentEventID: "te1",
-		Rules: auction.AuctionRules{MinBidAmount: 1500},
+		Status: auction.AuctionStatusRunning,
+		Rules:  auction.AuctionRules{MinBidAmount: 1500},
 	}
 	te := &auction.TournamentEvent{
 		ID: "te1",

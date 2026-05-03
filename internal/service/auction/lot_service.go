@@ -49,6 +49,9 @@ func (s *LotService) CreateLot(ctx context.Context, in CreateLotInput) (*auction
 	if a == nil {
 		return nil, &ValidationError{Err: fmt.Errorf("auction not found")}
 	}
+	if err := requireAuctionRunning(a); err != nil {
+		return nil, err
+	}
 	te, err := s.tournamentEvents.GetByID(ctx, a.TournamentEventID)
 	if err != nil {
 		return nil, fmt.Errorf("get tournament event: %w", err)
@@ -137,6 +140,9 @@ func (s *LotService) CreateLotsBulk(ctx context.Context, in CreateLotsBulkInput)
 	}
 	if a == nil {
 		return nil, &ValidationError{Err: fmt.Errorf("auction not found")}
+	}
+	if err := requireAuctionRunning(a); err != nil {
+		return nil, err
 	}
 	te, err := s.tournamentEvents.GetByID(ctx, a.TournamentEventID)
 	if err != nil {
@@ -233,6 +239,9 @@ func (s *LotService) CreateLotsByQuery(ctx context.Context, in CreateLotsByQuery
 	}
 	if a == nil {
 		return nil, &ValidationError{Err: fmt.Errorf("auction not found")}
+	}
+	if err := requireAuctionRunning(a); err != nil {
+		return nil, err
 	}
 
 	// Allow client to pass tournament/event, but validate consistency with auction if they do.
@@ -371,6 +380,9 @@ func (s *LotService) SetDisplayAuctionPlayer(ctx context.Context, auctionID, auc
 	}
 	if a == nil {
 		return nil, &ValidationError{Err: fmt.Errorf("auction not found")}
+	}
+	if err := requireAuctionRunning(a); err != nil {
+		return nil, err
 	}
 	lotID := strings.TrimSpace(auctionPlayerID)
 	if lotID == "" {

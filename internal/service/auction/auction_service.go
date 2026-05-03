@@ -66,6 +66,7 @@ func (s *AuctionService) CreateAuction(ctx context.Context, tournamentID, tourna
 		TournamentEventID: tournamentEventID,
 		Mode:              mode,
 		RunMode:           runMode,
+		Status:            auction.AuctionStatusCreated,
 		FilterPresets:     filterPresets,
 		Rules:             rules,
 		CreatedAt:         s.nowMs(),
@@ -96,6 +97,30 @@ func (s *AuctionService) UpdateAuctionRunMode(ctx context.Context, auctionID str
 			return nil, &ValidationError{Err: fmt.Errorf("auction not found")}
 		}
 		return nil, fmt.Errorf("update run mode: %w", err)
+	}
+	return s.auctions.GetByID(ctx, auctionID)
+}
+
+// UpdateAuctionStatus sets lifecycle status: created, running, or completed.
+func (s *AuctionService) UpdateAuctionStatus(ctx context.Context, auctionID string, status auction.AuctionStatus) (*auction.Auction, error) {
+	if auctionID == "" {
+		return nil, &ValidationError{Err: fmt.Errorf("auction_id is required")}
+	}
+	if _, err := auction.ParseAuctionStatus(string(status)); err != nil {
+		return nil, &ValidationError{Err: err}
+	}
+	existing, err := s.auctions.GetByID(ctx, auctionID)
+	if err != nil {
+		return nil, err
+	}
+	if existing == nil {
+		return nil, &ValidationError{Err: fmt.Errorf("auction not found")}
+	}
+	if err := s.auctions.UpdateStatus(ctx, auctionID, status); err != nil {
+		if strings.Contains(err.Error(), "auction not found") {
+			return nil, &ValidationError{Err: fmt.Errorf("auction not found")}
+		}
+		return nil, fmt.Errorf("update status: %w", err)
 	}
 	return s.auctions.GetByID(ctx, auctionID)
 }
